@@ -1,17 +1,24 @@
 #!/bin/bash
 
+# 脚本版本信息
+# 最后更新: 2025-03-16
+# 版本: 1.0.1
+# 作者: Limitee
+
 # =====================================================
 # KTransformers 安装脚本
 # 
 # 命令行选项:
 #   -d, --debug           启用调试模式，记录详细日志
 #   -f, --fast            快速模式，使用默认配置无需用户确认
+#   -g, --git-debug       启用git详细日志输出（需要与-d一起使用）
 #   -h, --help            显示帮助信息
 # 
 # 示例:
 #   ./run.sh              正常安装
 #   ./run.sh -d           启用调试模式安装
 #   ./run.sh -f           快速模式安装（使用默认参数）
+#   ./run.sh -d -g        启用调试模式和git详细日志
 # =====================================================
 
 # 显示帮助信息的函数
@@ -23,12 +30,14 @@ show_help() {
     echo "选项:"
     echo "  -d, --debug           启用调试模式，记录详细日志"
     echo "  -f, --fast            快速模式，使用默认配置无需用户确认"
+    echo "  -g, --git-debug       启用git详细日志输出（需要与-d一起使用）"
     echo "  -h, --help            显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  ./run.sh              正常安装"
     echo "  ./run.sh -d           启用调试模式安装"
     echo "  ./run.sh -f           快速模式安装（使用默认参数）"
+    echo "  ./run.sh -d -g        启用调试模式和git详细日志"
     echo ""
     exit 0
 }
@@ -46,8 +55,10 @@ process_args() {
             -f|--fast)
                 FAST_MODE=1
                 ;;
+            -g|--git-debug)
+                GIT_DEBUG_MODE=1
+                ;;
             *)
-                # 未知参数，忽略
                 ;;
         esac
     done
@@ -63,16 +74,16 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 # 处理sudo环境下的PATH保留问题
 if [ "$(id -u)" -eq 0 ]; then
-    # 如果是sudo执行，尝试获取原始用户
+
     if [ -n "$SUDO_USER" ]; then
-        # 获取原始用户的HOME目录
+
         REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
         REAL_USER="$SUDO_USER"
         
-        # 尝试合并原用户的PATH
+
         if [ -f "$REAL_HOME/.bashrc" ]; then
             echo "检测到sudo环境，尝试保留原用户环境变量..."
-            # 获取原用户的PATH（不执行.bashrc中的其他命令）
+
             ORIGINAL_PATH=$(sudo -u "$SUDO_USER" bash -c 'echo $PATH')
             if [ -n "$ORIGINAL_PATH" ]; then
                 export PATH="$ORIGINAL_PATH:$PATH"
@@ -80,7 +91,7 @@ if [ "$(id -u)" -eq 0 ]; then
             fi
         fi
         
-        # 检查常见的CUDA路径
+
         CUDA_PATHS=(
             "/usr/local/cuda/bin"
             "$REAL_HOME/.local/cuda/bin"
@@ -94,7 +105,7 @@ if [ "$(id -u)" -eq 0 ]; then
             fi
         done
         
-        # 直接检查nvcc的位置
+
         NVCC_PATH=$(sudo -u "$SUDO_USER" which nvcc 2>/dev/null)
         if [ -n "$NVCC_PATH" ]; then
             NVCC_DIR=$(dirname "$NVCC_PATH")
@@ -103,7 +114,7 @@ if [ "$(id -u)" -eq 0 ]; then
         fi
     fi
 else
-    # 普通用户执行
+
     REAL_HOME="$HOME"
     REAL_USER="$(whoami)"
 fi
@@ -123,42 +134,46 @@ REPO_URL=""
 INSTALL_DIR="$(pwd)/workspace"  # 默认安装目录为当前目录
 ENV_NAME="ktrans_main"  # 默认环境名称
 DEBUG_MODE=0
+GIT_DEBUG_MODE=0  # 控制git详细日志输出，默认禁用
 LOG_FILE=""
 USE_NUMA=0  # 默认禁用USE_NUMA环境变量
 CUSTOM_PATH=""
 MAX_JOBS=$(nproc)
 FAST_MODE=0  # 默认禁用快速模式，允许用户修改配置
+USE_GHPROXY=0  # 默认禁用ghproxy，通过IP检测自动判断
+GHPROXY_URL=""  # ghproxy服务器URL
+IS_PROXY_SITE=0  # 是否使用代理站点
 
 # 用户配置部分
 configure_installation() {
-    # 显示LOGO
+
     echo -e "${BLUE}"
     echo -e "   __ ____                    ___                         "
-    echo -e "  / //_/ /________ ____  ___ / _/__  ______ _  ___ _______"
+    echo -e "  / //_/ /________ ____  ___ / _/__   ______ _  ___ _______"
     echo -e " / ,< / __/ __/ _ \`/ _ \(_-</ _/ _ \/ __/  ' \/ -_) __(_-<"
     echo -e "/_/|_|\__/_/  \_,_/_//_/___/_/ \___/_/ /_/_/_/\__/_/ /___/"
     echo -e " +------------------------------------------------------+"
     echo -e "${NC}\n"
     
-    # 显示模式信息
+
     if [ $FAST_MODE -eq 1 ]; then
         echo -e "${BLUE}===== 快速模式 - 使用默认配置 =====${NC}"
     else
         echo -e "${BLUE}===== KTransformers 安装配置 =====${NC}"
     fi
     
-    # GPU信息检测 - 更早进行，在摘要中展示
+
     local gpu_info="未检测到NVIDIA GPU"
     local cuda_info="未检测到CUDA"
     
-    # 检测NVIDIA GPU
+
     if command -v nvidia-smi &>/dev/null; then
         gpu_info=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1)
         if [ -z "$gpu_info" ]; then
             gpu_info="检测到NVIDIA驱动，但未找到GPU设备"
         fi
         
-        # 检测CUDA版本
+
         if command -v nvcc &>/dev/null; then
             cuda_info=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
             if [ -n "$cuda_info" ]; then
@@ -169,13 +184,13 @@ configure_installation() {
         fi
     fi
     
-    # 根据FAST_MODE决定是否允许用户修改配置
+
     if [ $FAST_MODE -eq 1 ]; then
         echo -e "\n${YELLOW}快速模式：使用默认配置，跳过参数修改${NC}"
     else
         echo -e "\n${BLUE}配置安装参数${NC}"
         
-        # 修改安装路径
+
         echo -e "${YELLOW}请输入安装路径 (默认: ${INSTALL_DIR}):${NC}"
         read -r user_install_dir
         if [ -n "$user_install_dir" ]; then
@@ -183,7 +198,7 @@ configure_installation() {
             echo -e "${GREEN}✓ 安装路径已更新为: ${INSTALL_DIR}${NC}"
         fi
         
-        # 修改环境名称
+
         echo -e "${YELLOW}请输入Conda环境名称 (默认: ${ENV_NAME}):${NC}"
         read -r user_env_name
         if [ -n "$user_env_name" ]; then
@@ -191,7 +206,7 @@ configure_installation() {
             echo -e "${GREEN}✓ Conda环境名称已更新为: ${ENV_NAME}${NC}"
         fi
         
-        # 修改USE_NUMA设置
+
         echo -e "${YELLOW}是否启用USE_NUMA环境变量? [y/N]:${NC}"
         read -r use_numa_option
         if [[ "$use_numa_option" =~ ^[Yy]$ ]]; then
@@ -202,7 +217,7 @@ configure_installation() {
             echo -e "${GREEN}✓ 已禁用USE_NUMA环境变量${NC}"
         fi
         
-        # 修改编译线程数
+
         echo -e "${YELLOW}请输入编译最大线程数 (默认: ${MAX_JOBS}):${NC}"
         read -r user_max_jobs
         if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
@@ -210,7 +225,7 @@ configure_installation() {
             echo -e "${GREEN}✓ 编译最大线程数已更新为: ${MAX_JOBS}${NC}"
         fi
         
-        # 修改调试模式
+
         echo -e "${YELLOW}是否启用调试模式? [y/N]:${NC}"
         read -r debug_option
         if [[ "$debug_option" =~ ^[Yy]$ ]]; then
@@ -222,7 +237,7 @@ configure_installation() {
         fi
     fi
     
-    # 显示配置摘要
+
     echo -e "\n${BLUE}=== 安装配置摘要 ===${NC}"
     echo -e "${BLUE}● 安装路径: ${GREEN}${INSTALL_DIR}${NC}"
     echo -e "${BLUE}● Conda环境: ${GREEN}${ENV_NAME}${NC}"
@@ -232,8 +247,9 @@ configure_installation() {
     echo -e "${BLUE}● 编译线程: ${GREEN}${MAX_JOBS}${NC}"
     echo -e "${BLUE}● 调试模式: ${GREEN}$([ $DEBUG_MODE -eq 1 ] && echo "启用" || echo "禁用")${NC}"
     echo -e "${BLUE}● 运行模式: ${GREEN}$([ $FAST_MODE -eq 1 ] && echo "快速模式" || echo "标准模式")${NC}"
+    echo -e "${BLUE}● 网络检测: ${GREEN}IP检测与镜像站点自动选择${NC}"
     
-    # 如果不是快速模式，等待用户确认
+
     if [ $FAST_MODE -eq 0 ]; then
         echo -e "\n${GREEN}✓ 配置已确认，3秒后开始安装...${NC}"
         sleep 3
@@ -241,43 +257,62 @@ configure_installation() {
         echo -e "\n${GREEN}✓ 使用默认配置，开始安装...${NC}"
     fi
     
-    # 清空屏幕，开始安装
+
     clear
 }
 
-# 日志记录函数
+# 日志函数
 log() {
-    local level="$1"
-    local message="$2"
-    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local level=$1
+    local message=$2
+    local color=""
+    local prefix=""
     
-    case "$level" in
+    case $level in
+        "DEBUG")
+            color="$CYAN"
+            prefix="[DEBUG]"
+            # 只在调试模式下显示DEBUG级别日志
+            if [ $DEBUG_MODE -eq 0 ]; then
+                return 0
+            fi
+            ;;
         "INFO")
-            echo -e "${BLUE}[INFO] ${message}${NC}"
+            color="$BLUE"
+            prefix="[INFO]"
             ;;
         "SUCCESS")
-            echo -e "${GREEN}✓ ${message}${NC}"
+            color="$GREEN"
+            prefix="[SUCCESS]"
             ;;
         "WARN")
-            echo -e "${YELLOW}[WARN] ${message}${NC}"
+            color="$YELLOW"
+            prefix="[WARN]"
             ;;
         "ERROR")
-            echo -e "${RED}[ERROR] ${message}${NC}"
+            color="$RED"
+            prefix="[ERROR]"
             ;;
         "FATAL")
-            echo -e "${RED}[FATAL] ${message}${NC}"
+            color="$RED"
+            prefix="[FATAL]"
             ;;
         *)
-            echo -e "${message}"
+            color="$BLUE"
+            prefix="[INFO]"
             ;;
     esac
     
+
+    echo -e "${color}${prefix} ${message}${NC}"
+    
+
     if [ -n "$LOG_FILE" ]; then
-        echo "[${timestamp}] [${level}] ${message}" >> "$LOG_FILE"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ${prefix} ${message}" >> "$LOG_FILE"
     fi
 }
 
-# 日志记录函数 - 同时在屏幕显示并记录到日志文件
+# 日志记录函数
 log_debug() {
     local message="$1"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
@@ -290,7 +325,7 @@ log_debug() {
 
 # 函数：询问是否启用调试模式
 prompt_debug_mode() {
-    # 在命令行参数中接收-d或--debug标志
+
     if [[ "$*" == *"-d"* ]] || [[ "$*" == *"--debug"* ]]; then
         DEBUG_MODE=1
         echo -e "${YELLOW}调试模式已启用${NC}"
@@ -304,11 +339,11 @@ setup_log_file() {
     local timestamp=$(date +"%Y%m%d_%H%M%S")
     LOG_FILE="ktransformers_install_${timestamp}.log"
     
-    # 创建日志文件并写入头部信息
+
     echo "===== KTransformers 安装日志 - $(date) =====" > "$LOG_FILE"
     echo "" >> "$LOG_FILE"
     
-    # 记录调试模式状态
+
     if [ $DEBUG_MODE -eq 1 ]; then
         echo "调试模式: 启用" >> "$LOG_FILE"
         echo -e "${CYAN}日志文件: ${LOG_FILE}${NC}"
@@ -317,13 +352,13 @@ setup_log_file() {
     fi
     echo "" >> "$LOG_FILE"
     
-    # 确保日志文件权限正确
+
     chmod 644 "$LOG_FILE"
     
-    # 记录初始化完成信息
+
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 日志文件初始化完成" >> "$LOG_FILE"
     
-    # 在调试模式下显示更多信息
+
     if [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${CYAN}[调试] 日志文件已创建: ${LOG_FILE}${NC}"
         echo -e "${CYAN}[调试] 将记录详细安装过程${NC}"
@@ -339,7 +374,7 @@ collect_system_info() {
     echo "===== 系统信息 =====" >> "$LOG_FILE"
     echo "" >> "$LOG_FILE"
     
-    # CPU信息
+
     echo "--- CPU信息 ---" >> "$LOG_FILE"
     if command -v lscpu &> /dev/null; then
         lscpu >> "$LOG_FILE"
@@ -349,14 +384,14 @@ collect_system_info() {
     fi
     echo "" >> "$LOG_FILE"
     
-    # 内存信息
+
     echo "--- 内存信息 ---" >> "$LOG_FILE"
     if command -v free &> /dev/null; then
         free -h >> "$LOG_FILE"
     fi
     echo "" >> "$LOG_FILE"
     
-    # 显卡信息
+
     echo "--- 显卡信息 ---" >> "$LOG_FILE"
     if command -v nvidia-smi &> /dev/null; then
         nvidia-smi >> "$LOG_FILE"
@@ -372,7 +407,7 @@ collect_system_info() {
     fi
     echo "" >> "$LOG_FILE"
     
-    # 系统信息
+
     echo "--- 系统信息 ---" >> "$LOG_FILE"
     if command -v lsb_release &> /dev/null; then
         lsb_release -a >> "$LOG_FILE" 2>&1
@@ -381,12 +416,12 @@ collect_system_info() {
     fi
     echo "" >> "$LOG_FILE"
     
-    # 内核信息
+
     echo "--- 内核信息 ---" >> "$LOG_FILE"
     uname -a >> "$LOG_FILE"
     echo "" >> "$LOG_FILE"
     
-    # 软件环境
+
     echo "--- 软件环境 ---" >> "$LOG_FILE"
     echo "Python版本: $(command -v python && python --version 2>&1 || echo "未安装")" >> "$LOG_FILE"
     echo "GCC版本: $(command -v gcc && gcc --version 2>&1 | head -n 1 || echo "未安装")" >> "$LOG_FILE"
@@ -408,17 +443,17 @@ collect_system_info() {
     fi
 }
 
-# 检查命令是否存在
+
 command_exists() {
     command -v "$1" &> /dev/null
 }
 
-# 扩展原有的重试命令，以支持调试和日志
+
 retry_command_with_logging() {
     local command="$1"
     local max_attempts=3
     local attempt=1
-    local timeout_duration="${2:-300}"  # 默认超时时间，以秒为单位
+    local timeout_duration="${2:-300}"
     
     if [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${CYAN}[调试] 命令: $command${NC}"
@@ -429,18 +464,18 @@ retry_command_with_logging() {
     while [ $attempt -le $max_attempts ]; do
         echo -e "${BLUE}尝试执行命令 (尝试 $attempt/$max_attempts): ${NC}$command"
         
-        # 如果在调试模式下，记录命令开始执行的时间
+
         if [ $DEBUG_MODE -eq 1 ]; then
             local start_time=$(date +%s)
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始尝试 #$attempt: $command" >> "$LOG_FILE"
         fi
         
-        # 使用timeout执行命令并捕获输出和退出码
+
         local output
         output=$(timeout $timeout_duration bash -c "$command" 2>&1)
         local exit_code=$?
         
-        # 记录命令输出到日志
+
         if [ -n "$output" ]; then
             echo "--- 命令输出开始 ---" >> "$LOG_FILE"
             echo "$output" >> "$LOG_FILE"
@@ -483,7 +518,7 @@ retry_command_with_logging() {
     return 1
 }
 
-# 进度条函数，添加调试日志记录
+# 进度条函数
 show_progress_with_logging() {
     local duration=$1
     local sleep_interval=1
@@ -519,7 +554,7 @@ show_progress_with_logging() {
         
         echo -ne "${YELLOW}] ${progress}%${NC}\r"
         
-        # 每10%记录一次进度到日志，只在DEBUG模式下
+
         if [ $DEBUG_MODE -eq 1 ] && [ $((i % (duration / 10))) -eq 0 ]; then
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] 进度: $progress%" >> "$LOG_FILE"
         fi
@@ -537,7 +572,7 @@ show_progress_with_logging() {
     fi
 }
 
-# 检测是否为超级用户 - 添加调试信息
+# 检测是否为超级用户
 check_root() {
     echo -e "${BLUE}[步骤 0] 检测是否为超级用户${NC}"
     
@@ -557,7 +592,7 @@ check_root() {
     fi
 }
 
-# 检查并安装必要的工具 - 添加调试信息
+# 检查并安装必要的工具
 check_required_tools() {
     echo -e "${BLUE}[准备工作] 检查必要工具${NC}"
     
@@ -575,7 +610,7 @@ check_required_tools() {
             echo -e "${YELLOW}缺少必要工具: $tool${NC}"
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] 缺少必要工具: $tool" >> "$LOG_FILE"
         elif [ $DEBUG_MODE -eq 1 ]; then
-            # 在调试模式下显示已安装工具的位置
+
             echo -e "${CYAN}[调试] $tool 已安装: $(which $tool)${NC}"
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] $tool 已安装: $(which $tool)" >> "$LOG_FILE"
         fi
@@ -585,7 +620,7 @@ check_required_tools() {
         echo -e "${YELLOW}正在安装缺少的工具...${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] 正在安装缺少的工具: ${missing_tools[*]}" >> "$LOG_FILE"
         
-        # 更新包管理器并设置非交互模式
+
         if [ $DEBUG_MODE -eq 1 ]; then
             echo -e "${CYAN}[调试] 更新软件包列表${NC}"
         fi
@@ -596,7 +631,7 @@ check_required_tools() {
             return 1
         fi
         
-        # 安装缺失的工具
+
         for tool in "${missing_tools[@]}"; do
             echo -e "${YELLOW}正在安装: $tool${NC}"
             
@@ -632,7 +667,7 @@ check_required_tools() {
                     echo -e "${CYAN}[调试] $tool 安装成功: $(which $tool)${NC}"
                     echo "[$(date +"%Y-%m-%d %H:%M:%S")] $tool 安装成功: $(which $tool)" >> "$LOG_FILE"
                     
-                    # 显示版本信息（如果可用）
+
                     if $tool --version &>/dev/null; then
                         echo -e "${CYAN}[调试] $tool 版本: $($tool --version | head -n 1)${NC}"
                         echo "[$(date +"%Y-%m-%d %H:%M:%S")] $tool 版本: $($tool --version | head -n 1)" >> "$LOG_FILE"
@@ -674,25 +709,25 @@ check_build_tools() {
     if [ ${#missing_tools[@]} -gt 0 ]; then
         log "INFO" "正在安装缺少的构建工具..."
         
-        # 更新包管理器并设置非交互模式
+
         if ! DEBIAN_FRONTEND=noninteractive apt-get update -y; then
             log "ERROR" "更新包管理器失败"
             return 1
         fi
         
-        # 安装软件属性工具
+
         if ! DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common; then
             log "ERROR" "安装software-properties-common失败"
             log "WARN" "继续尝试安装其他工具"
         fi
         
-        # 安装构建基础工具
+
         if ! DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake; then
             log "ERROR" "安装build-essential和cmake失败"
             log "WARN" "继续尝试安装其他工具"
         fi
         
-        # 再次检查工具安装情况
+
         local still_missing=()
         for tool in "${missing_tools[@]}"; do
             if ! command_exists "$tool"; then
@@ -705,7 +740,7 @@ check_build_tools() {
         
         if [ ${#still_missing[@]} -gt 0 ]; then
             log "WARN" "部分构建工具安装失败，可能影响后续步骤"
-            # 这里不返回错误，允许继续
+
         else
             log "SUCCESS" "所有构建工具安装完成"
         fi
@@ -716,7 +751,7 @@ check_build_tools() {
     return 0
 }
 
-# 1. 检测git，如果未安装则安装
+# 1. 检测git
 install_git() {
     log "INFO" "[步骤 1] 检测git"
     
@@ -741,221 +776,27 @@ install_git() {
     return 0
 }
 
-# 1.5 测试GitHub连通性并选择最佳站点 - 并行方式
+# 1.5 测试GitHub连通性
 test_github_connectivity() {
     log "INFO" "测试GitHub连通性"
     
-    # 定义要测试的站点
-    local sites=(
-        "github.com"
-        "bgithub.xyz"
-        "ggithub.xyz"
-    )
+
+    IS_PROXY_SITE=0
+    USE_GHPROXY=0
     
-    # 定义多个测试仓库（小型测试仓库，按优先级排序）
-    local test_repos=(
-        "hello-world:octocat"
-        "github-docs:github"
-        "gitignore:github"
-    )
-    
-    # 创建临时目录
-    local temp_dir
-    temp_dir=$(mktemp -d)
-    if ! pushd "$temp_dir" > /dev/null; then
-        log "ERROR" "无法创建或进入临时目录"
-        return 1
-    fi
-    
-    # 并行测试函数
-    test_site() {
-        local site=$1
-        local result_file=$2
-        
-        log "INFO" "测试站点 $site 的连通性..."
-        
-        # 多种测试方法标志
-        local site_accessible=false
-        local delay=999999
-        
-        # 1. 首先尝试通过克隆小型仓库测试
-        for repo_info in "${test_repos[@]}"; do
-            # 如果站点已检测成功，跳出循环
-            if [ "$site_accessible" = true ]; then
-                break
-            fi
-            
-            # 解析仓库名称和所有者
-            local test_repo="${repo_info%%:*}"
-            local test_user="${repo_info#*:}"
-            
-            # 构建URL
-            local url="https://$site/$test_user/$test_repo.git"
-            log "INFO" "尝试克隆 $test_user/$test_repo..."
-            
-            # 测量克隆时间
-            local start_time
-            local end_time
-            
-            start_time=$(date +%s)
-            
-            # 尝试克隆（使用depth=1和quiet来减少网络流量和输出）
-            if timeout 15 git clone --depth 1 --quiet "$url" "${site}_${test_repo}_test" 2>/dev/null; then
-                end_time=$(date +%s)
-                delay=$((end_time - start_time))
-                
-                log "SUCCESS" "站点 $site 可通过仓库 $test_user/$test_repo 访问，延迟: ${delay}秒"
-                site_accessible=true
-                
-                # 清理克隆的仓库
-                rm -rf "${site}_${test_repo}_test"
-                # 写入结果文件
-                echo "$site:accessible:$delay" > "$result_file"
-                return
-            else
-                log "WARN" "无法通过仓库 $test_user/$test_repo 访问站点 $site"
-                # 继续尝试下一个测试仓库
-            fi
-        done
-        
-        # 2. 如果克隆失败，尝试通过HTTP GET请求测试
-        if [ "$site_accessible" = false ]; then
-            log "INFO" "尝试通过HTTP请求测试站点 $site..."
-            
-            if command_exists curl; then
-                start_time=$(date +%s)
-                if timeout 8 curl -s -o /dev/null -w "%{http_code}" "https://$site" | grep -q "^[23]"; then
-                    end_time=$(date +%s)
-                    delay=$((end_time - start_time))
-                    site_accessible=true
-                    log "SUCCESS" "站点 $site 可通过HTTP请求访问，延迟: ${delay}秒"
-                    echo "$site:accessible:$delay" > "$result_file"
-                    return
-                else
-                    log "ERROR" "站点 $site 无法通过HTTP请求访问"
-                fi
-            elif command_exists wget; then
-                start_time=$(date +%s)
-                if timeout 8 wget -q --spider "https://$site"; then
-                    end_time=$(date +%s)
-                    delay=$((end_time - start_time))
-                    site_accessible=true
-                    log "SUCCESS" "站点 $site 可通过HTTP请求访问，延迟: ${delay}秒"
-                    echo "$site:accessible:$delay" > "$result_file"
-                    return
-                else
-                    log "ERROR" "站点 $site 无法通过HTTP请求访问"
-                fi
-            fi
-        fi
-        
-        # 如果站点完全无法访问
-        if [ "$site_accessible" = false ]; then
-            log "ERROR" "站点 $site 完全无法访问"
-            echo "$site:inaccessible:999999" > "$result_file"
-        fi
-    }
-    
-    # 并行测试所有站点
-    local result_files=()
-    for site in "${sites[@]}"; do
-        local result_file="$temp_dir/${site}_result.txt"
-        result_files+=("$result_file")
-        test_site "$site" "$result_file" &
-    done
-    
-    # 等待所有测试完成
-    wait
-    
-    # 分析结果
-    local best_site=""
-    local min_delay=999999
-    local accessible=false
-    
-    for result_file in "${result_files[@]}"; do
-        if [ -f "$result_file" ]; then
-            local result=$(cat "$result_file")
-            local site="${result%%:*}"
-            local status="${result#*:}"
-            status="${status%%:*}"
-            local delay="${result##*:}"
-            
-            if [ "$status" = "accessible" ]; then
-                accessible=true
-                if [ "$delay" -lt "$min_delay" ]; then
-                    min_delay=$delay
-                    best_site=$site
-                fi
-            fi
-        fi
-    done
-    
-    # 清理临时目录
-    if ! popd > /dev/null; then
-        log "WARN" "无法返回原始目录"
-    fi
-    rm -rf "$temp_dir"
-    
-    # 输出结果
-    log "INFO" "GitHub连通性测试结果:"
-    
-    if [ "$accessible" = true ]; then
-        log "SUCCESS" "使用延迟最低的站点: $best_site (延迟: ${min_delay}秒)"
-        
-        # 保存最佳站点到全局变量
-        BEST_GITHUB_SITE="$best_site"
-        
-        # 根据最佳站点构建要使用的仓库URL
-        REPO_URL="https://${best_site}/kvcache-ai/ktransformers.git"
-        
-        # 验证仓库URL的可访问性
-        log "INFO" "验证仓库URL: ${REPO_URL}"
-        if timeout 10 git ls-remote --quiet --exit-code "$REPO_URL" &>/dev/null; then
-            log "SUCCESS" "仓库URL验证成功"
-        else
-            log "ERROR" "仓库URL验证失败，切换到备用GitHub URL"
-            # 尝试其他可访问的站点，而不是直接回退到github.com
-            for result_file in "${result_files[@]}"; do
-                if [ -f "$result_file" ]; then
-                    local result=$(cat "$result_file")
-                    local site="${result%%:*}"
-                    local status="${result#*:}"
-                    status="${status%%:*}"
-                    
-                    if [ "$status" = "accessible" ] && [ "$site" != "$best_site" ]; then
-                        BEST_GITHUB_SITE="$site"
-                        REPO_URL="https://${site}/kvcache-ai/ktransformers.git"
-                        log "INFO" "尝试备用站点: $site"
-                        if timeout 10 git ls-remote --quiet --exit-code "$REPO_URL" &>/dev/null; then
-                            log "SUCCESS" "备用仓库URL验证成功"
-                            break
-                        fi
-                    fi
-                fi
-            done
-            
-            # 如果所有备用站点都失败，才使用github.com
-            if ! timeout 10 git ls-remote --quiet --exit-code "$REPO_URL" &>/dev/null; then
-                log "WARN" "所有备用站点都失败，尝试使用github.com"
-                BEST_GITHUB_SITE="github.com"
-                REPO_URL="https://github.com/kvcache-ai/ktransformers.git"
-            fi
-        fi
-    else
-        log "ERROR" "所有GitHub站点均无法访问"
-        log "WARN" "将尝试使用默认的GitHub URL"
-        # 设置默认站点
+
+    if is_china_ip; then
+        log "INFO" "检测到中国IP，使用ghfast.top代理服务"
+        USE_GHPROXY=1
         BEST_GITHUB_SITE="github.com"
-        REPO_URL="https://github.com/kvcache-ai/ktransformers.git"
-    fi
-    
-    log "INFO" "将使用仓库URL: ${REPO_URL}"
-    
-    # 配置git全局设置，使用选定的镜像站点替换github.com
-    if [ "$BEST_GITHUB_SITE" != "github.com" ]; then
-        log "INFO" "配置git使用镜像站点 $BEST_GITHUB_SITE 替换 github.com"
-        git config --global url."https://${BEST_GITHUB_SITE}/".insteadOf "https://github.com/"
-        log "SUCCESS" "git配置已更新，所有github.com请求将使用 $BEST_GITHUB_SITE"
+        GHPROXY_URL="https://ghfast.top"
+        log "SUCCESS" "已配置使用ghfast.top代理服务: $GHPROXY_URL"
+        export GHPROXY_URL
+        export USE_GHPROXY
+    else
+        log "INFO" "检测到非中国IP，将直接使用GitHub"
+        BEST_GITHUB_SITE="github.com"
+        USE_GHPROXY=0
     fi
     
     return 0
@@ -963,78 +804,126 @@ test_github_connectivity() {
 
 # 2. 拉取仓库
 clone_repository() {
-    echo -e "${BLUE}[INFO] 克隆KTransformers仓库${NC}"
+    log "INFO" "克隆KTransformers仓库到 $INSTALL_DIR"
     
-    # 使用全局安装目录
-    cd "$HOME" || return 1
+
+    mkdir -p "$INSTALL_DIR" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        log "ERROR" "无法创建目录 $INSTALL_DIR，请检查权限"
+        return 1
+    fi
     
-    # 检查安装目录是否已存在
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}[WARN] 安装目录 $INSTALL_DIR 已存在${NC}"
-        echo -e "${YELLOW}[INFO] 尝试更新仓库内容...${NC}"
-        
-        # 尝试更新目录
-        cd "$INSTALL_DIR" || return 1
-        if [ -d ".git" ]; then
-            echo -e "${YELLOW}[INFO] 尝试使用git pull更新...${NC}"
-            
-            # 确保使用正确的仓库URL
-            if [ -n "$REPO_URL" ]; then
-                # 设置远程URL为测试确定的最佳URL
-                git remote set-url origin "$REPO_URL"
-                echo -e "${GREEN}✓ 已更新远程仓库URL为: $REPO_URL${NC}"
-            fi
-            
-            if git pull; then
-                echo -e "${GREEN}✓ 仓库更新成功${NC}"
-                return 0
-            else
-                echo -e "${RED}[ERROR] 仓库更新失败${NC}"
-                return 1
+
+    if [ ! -w "$INSTALL_DIR" ]; then
+        log "ERROR" "目录 $INSTALL_DIR 没有写入权限，请检查权限设置"
+        return 1
+    fi
+    
+
+    if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+        if [ $FAST_MODE -eq 0 ]; then
+            log "WARN" "目录 $INSTALL_DIR 已存在且不为空"
+            read -p "是否继续安装? 这可能会覆盖现有文件 [y/N]: " -r
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "ERROR" "安装已取消"
+                exit 1
             fi
         else
-            echo -e "${RED}[ERROR] $INSTALL_DIR 不是一个git仓库${NC}"
-            return 1
+            log "WARN" "目录 $INSTALL_DIR 已存在且不为空，快速模式下将继续安装"
         fi
     fi
     
-    # 创建安装目录
-    mkdir -p "$INSTALL_DIR" || return 1
+
+    local repo_url="https://github.com/kvcache-ai/ktransformers.git"
     
-    # 克隆仓库到安装目录
-    echo -e "${YELLOW}[INFO] 克隆仓库到 $INSTALL_DIR...${NC}"
-    
-    # 确保使用测试确定的最佳仓库URL
-    if [ -z "$REPO_URL" ]; then
-        # 如果REPO_URL为空，使用BEST_GITHUB_SITE构建URL
-        if [ -n "$BEST_GITHUB_SITE" ]; then
-            REPO_URL="https://${BEST_GITHUB_SITE}/kvcache-ai/ktransformers.git"
-        else
-            # 如果BEST_GITHUB_SITE也为空，使用默认URL
-            REPO_URL="https://github.com/kvcache-ai/ktransformers.git"
-        fi
+
+    if [ $USE_GHPROXY -eq 1 ]; then
+
+        log "INFO" "使用ghfast.top代理克隆仓库"
+        repo_url="${GHPROXY_URL}/https://github.com/kvcache-ai/ktransformers.git"
+    elif [ $IS_PROXY_SITE -eq 1 ]; then
+
+        log "INFO" "选择了代理站点 $BEST_GITHUB_SITE，使用代理克隆"
+        repo_url="https://${BEST_GITHUB_SITE}/https://github.com/kvcache-ai/ktransformers.git"
+
+        repo_url="https://${BEST_GITHUB_SITE}/kvcache-ai/ktransformers.git"
+        log "INFO" "使用镜像站点URL: $repo_url"
     fi
     
-    echo -e "${YELLOW}[INFO] 使用仓库URL: $REPO_URL${NC}"
+    log "DEBUG" "使用仓库URL: $repo_url"
     
-    # 使用git clone命令克隆仓库
-    if git clone "$REPO_URL" "$INSTALL_DIR"; then
-        echo -e "${GREEN}✓ 仓库克隆成功${NC}"
-        
-        # 进入安装目录
-        cd "$INSTALL_DIR" || return 1
+
+    local tmp_log=$(mktemp)
+    log "INFO" "开始克隆仓库..."
+    
+
+    git clone "$repo_url" "$INSTALL_DIR" --progress 2>&1 | tee "$tmp_log" | grep --line-buffered -i "Receiving objects\|Resolving deltas"
+    local exit_code=${PIPESTATUS[0]}
+    
+
+    if [ $exit_code -eq 0 ] && [ -d "$INSTALL_DIR/.git" ]; then
+        log "SUCCESS" "仓库克隆成功"
+        rm -f "$tmp_log"
         return 0
     else
-        echo -e "${RED}[FATAL] 仓库克隆失败${NC}"
+        log "ERROR" "仓库克隆失败 (错误码: $exit_code)"
+        log "DEBUG" "克隆错误详情:"
+        cat "$tmp_log" | tail -n 20
+        
+
+        if grep -q "timeout\|timed out\|connection refused\|network" "$tmp_log"; then
+            log "WARN" "检测到网络问题，尝试使用备用方法..."
+            
+
+            if [ $USE_GHPROXY -eq 1 ]; then
+
+                if [[ "$GHPROXY_URL" == "https://ghfast.top" ]]; then
+
+                    local other_proxies=(
+                        "https://ghproxy.homeboyc.cn"
+                        "https://mirror.ghproxy.com"
+                        "https://ghproxy.net"
+                        "https://gh.api.99988866.xyz"
+                    )
+                    
+                    for proxy in "${other_proxies[@]}"; do
+                        log "INFO" "尝试使用代理 $proxy 克隆..."
+                        if git clone "${proxy}/https://github.com/kvcache-ai/ktransformers.git" "$INSTALL_DIR" --progress; then
+                            log "SUCCESS" "使用代理 $proxy 克隆成功"
+                            rm -f "$tmp_log"
+                            return 0
+                        fi
+                    done
+                fi
+                
+
+                log "INFO" "所有代理都失败，尝试直接从GitHub克隆..."
+                if git clone "https://github.com/kvcache-ai/ktransformers.git" "$INSTALL_DIR" --progress; then
+                    log "SUCCESS" "使用直接连接克隆成功"
+                    rm -f "$tmp_log"
+                    return 0
+                fi
+
+            elif [ $USE_GHPROXY -eq 0 ]; then
+                log "INFO" "尝试使用ghfast.top代理克隆..."
+                if git clone "https://ghfast.top/https://github.com/kvcache-ai/ktransformers.git" "$INSTALL_DIR" --progress; then
+                    log "SUCCESS" "使用ghfast.top代理克隆成功"
+                    rm -f "$tmp_log"
+                    return 0
+                fi
+            fi
+        fi
+        
+        rm -f "$tmp_log"
         return 1
     fi
 }
 
-# 3. 检测conda，如果未安装则安装miniconda
+# 3. 检测conda
 install_conda() {
     echo -e "${BLUE}[步骤 3] 检测conda${NC}"
     
-    # 先检查conda是否已在PATH中
+
     if command_exists conda; then
         echo -e "${GREEN}✓ conda已安装: $(which conda)${NC}"
         if [ $DEBUG_MODE -eq 1 ]; then
@@ -1045,25 +934,25 @@ install_conda() {
         return 0
     fi
     
-    # 检查可能的conda路径
+
     local possible_conda_paths=(
         "$HOME/miniconda3/bin/conda"
         "$HOME/anaconda3/bin/conda"
-        "/home/oak/miniconda3/bin/conda"  # 特别检查oak用户的miniconda路径
+        "~/miniconda3/bin/conda"
         "/opt/conda/bin/conda"
     )
     
-    # 检查这些路径是否存在conda
+
     for conda_path in "${possible_conda_paths[@]}"; do
         if [ -f "$conda_path" ]; then
             echo -e "${YELLOW}找到conda但未在PATH中: ${conda_path}${NC}"
             echo -e "${YELLOW}正在将conda添加到PATH...${NC}"
             
-            # 提取conda安装目录
+
             local conda_dir=$(dirname $(dirname "$conda_path"))
             export PATH="${conda_dir}/bin:$PATH"
             
-            # 验证conda现在可用
+
             if command_exists conda; then
                 echo -e "${GREEN}✓ 成功将conda添加到PATH: $(which conda)${NC}"
                 if [ $DEBUG_MODE -eq 1 ]; then
@@ -1078,10 +967,10 @@ install_conda() {
     
     echo -e "${YELLOW}conda未安装，正在安装miniconda...${NC}"
     
-    # 下载miniconda安装脚本
+
     retry_command_with_logging "wget https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"
     
-    # 确定非root用户
+
     if [ "$(id -u)" -eq 0 ]; then
         local non_root_user=$(who | awk '{print $1}' | head -n 1)
         if [ -z "$non_root_user" ]; then
@@ -1091,41 +980,41 @@ install_conda() {
         fi
         echo -e "${YELLOW}将为用户 $non_root_user 安装conda${NC}"
         
-        # 检查miniconda目录是否已存在
+
         local miniconda_dir="/home/$non_root_user/miniconda3"
         if [ -d "$miniconda_dir" ]; then
             echo -e "${YELLOW}miniconda目录已存在: $miniconda_dir${NC}"
             echo -e "${YELLOW}尝试使用已有安装...${NC}"
             
-            # 添加conda到系统变量
+
             echo "export PATH=$miniconda_dir/bin:\$PATH" > /etc/profile.d/conda.sh
             chmod +x /etc/profile.d/conda.sh
             
-            # 设置当前会话的环境变量
+
             export PATH="$miniconda_dir/bin:$PATH"
             
-            # 验证conda可用
+
             if command_exists conda; then
                 echo -e "${GREEN}✓ conda设置成功${NC}"
                 return 0
             else
                 echo -e "${YELLOW}无法使用已有安装，尝试修复...${NC}"
-                # 尝试使用-u参数更新已有安装
+
                 su - $non_root_user -c "bash /tmp/miniconda.sh -u -b -p $miniconda_dir"
             fi
         else
-            # 安装miniconda
+
             su - $non_root_user -c "bash /tmp/miniconda.sh -b -p $miniconda_dir"
         fi
         
-        # 添加conda到系统变量
+
         echo "export PATH=$miniconda_dir/bin:\$PATH" > /etc/profile.d/conda.sh
         chmod +x /etc/profile.d/conda.sh
         
-        # 设置当前会话的环境变量
+
         export PATH="$miniconda_dir/bin:$PATH"
         
-        # 初始化conda给bash
+
         if command_exists conda; then
             echo -e "${YELLOW}正在初始化conda...${NC}"
             su - $non_root_user -c "conda init bash"
@@ -1143,20 +1032,20 @@ install_conda() {
             return 1
         fi
     else
-        # 检查miniconda目录是否已存在
+
         local miniconda_dir="$HOME/miniconda3"
         if [ -d "$miniconda_dir" ]; then
             echo -e "${YELLOW}miniconda目录已存在: $miniconda_dir${NC}"
             echo -e "${YELLOW}尝试使用已有安装...${NC}"
             
-            # 设置当前会话的环境变量
+
             export PATH="$miniconda_dir/bin:$PATH"
             
-            # 验证conda可用
+
             if command_exists conda; then
                 echo -e "${GREEN}✓ conda设置成功${NC}"
                 
-                # 确保初始化
+
                 echo -e "${YELLOW}确保conda已初始化...${NC}"
                 conda init bash
                 
@@ -1168,19 +1057,19 @@ install_conda() {
                 return 0
             else
                 echo -e "${YELLOW}无法使用已有安装，尝试修复...${NC}"
-                # 尝试使用-u参数更新已有安装
+
                 bash /tmp/miniconda.sh -u -b -p $miniconda_dir
             fi
         else
-            # 直接安装
+
             bash /tmp/miniconda.sh -b -p $miniconda_dir
         fi
         
-        # 设置环境变量
+
         export PATH="$miniconda_dir/bin:$PATH"
         echo "export PATH=$miniconda_dir/bin:\$PATH" >> $HOME/.bashrc
         
-        # 初始化conda
+
         if command_exists conda; then
             echo -e "${YELLOW}正在初始化conda...${NC}"
             conda init bash
@@ -1206,24 +1095,24 @@ install_conda() {
 create_conda_env() {
     echo -e "${BLUE}[步骤 4] 创建conda环境${NC}"
     
-    # 直接使用默认或已设置的环境名称，不再要求用户输入
+
     echo -e "${GREEN}使用环境名称: $ENV_NAME${NC}"
     
     retry_command_with_logging "conda create -n $ENV_NAME python=3.12 -y" 120
     echo -e "${GREEN}✓ conda环境 $ENV_NAME 创建成功${NC}"
 }
 
-# 检查并设置pip源
+
 check_and_set_pip_mirror() {
     echo -e "${BLUE}[准备工作] 检查pip源配置${NC}"
     
-    # 检查是否已经有pip配置
+
     local pip_config_file="$HOME/.pip/pip.conf"
     local is_china=false
     
-    # 尝试通过IP和延迟判断是否在中国
+
     if command_exists curl; then
-        # 检查延迟，如果访问国内网站延迟低于国外网站，则可能在中国
+
         local cn_delay=$(timeout 5 curl -s -o /dev/null -w "%{time_total}" https://www.baidu.com 2>/dev/null || echo "10")
         local global_delay=$(timeout 5 curl -s -o /dev/null -w "%{time_total}" https://www.google.com 2>/dev/null || echo "10")
         
@@ -1233,7 +1122,7 @@ check_and_set_pip_mirror() {
         fi
     fi
     
-    # 检查当前的pip源
+
     local current_index_url=""
     if [ -f "$pip_config_file" ]; then
         current_index_url=$(grep "index-url" "$pip_config_file" 2>/dev/null | cut -d "=" -f 2 | tr -d " ")
@@ -1241,7 +1130,7 @@ check_and_set_pip_mirror() {
         if [ -n "$current_index_url" ]; then
             echo -e "${YELLOW}当前pip源: ${current_index_url}${NC}"
             
-            # 判断是否为常见国内源
+
             if echo "$current_index_url" | grep -q -E "mirrors.ustc.edu.cn|tuna.tsinghua.edu.cn|mirrors.aliyun.com"; then
                 echo -e "${GREEN}✓ 已配置国内pip源${NC}"
                 return 0
@@ -1249,11 +1138,11 @@ check_and_set_pip_mirror() {
         fi
     fi
     
-    # 判断是否需要设置国内源
+
     if [ "$is_china" = true ] || [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${YELLOW}准备设置pip源为USTC源...${NC}"
         
-        # 创建配置目录和文件
+
         mkdir -p $(dirname "$pip_config_file")
         echo "[global]
 index-url = https://mirrors.ustc.edu.cn/pypi/web/simple
@@ -1268,7 +1157,7 @@ format = columns" > "$pip_config_file"
     return 0
 }
 
-# 增强的CUDA检测函数，支持更多场景
+# CUDA检测函数
 detect_pytorch_cuda_version() {
     echo -e "${BLUE}[准备工作] 检测CUDA环境${NC}"
     
@@ -1277,18 +1166,23 @@ detect_pytorch_cuda_version() {
     local driver_version=""
     local estimated_cuda_version=""
     
-    # 首先检查GPU驱动和CUDA兼容性
+
     if command_exists nvidia-smi; then
         driver_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)
         echo -e "${GREEN}✓ 检测到NVIDIA驱动版本: ${driver_version}${NC}"
         
-        # 根据驱动版本估计兼容的CUDA版本
+
         case "${driver_version%%.*}" in
-            "550"|"551"|"552"|"553"|"554"|"555") estimated_cuda_version="12.4" ;;
-            "535"|"536"|"537"|"538"|"539"|"540") estimated_cuda_version="12.2" ;;
-            "525"|"526"|"527"|"528"|"529"|"530") estimated_cuda_version="12.0" ;;
-            "510"|"511"|"512"|"513"|"514"|"515"|"516"|"517"|"518"|"519"|"520") estimated_cuda_version="11.8" ;;
-            "495"|"496"|"497"|"498"|"499"|"500"|"501"|"502"|"503"|"504"|"505") estimated_cuda_version="11.5" ;;
+            "570") estimated_cuda_version="12.8" ;;  # >=570.124.06 (CUDA 12.8 Update 1) 和 >=570.117 (CUDA 12.8 GA)
+            "560") estimated_cuda_version="12.6" ;;  # >=560.35.05 (CUDA 12.6 Update 3), >=560.35.03 (CUDA 12.6 Update 2/1), >=560.28.03 (CUDA 12.6 GA)
+            "555") estimated_cuda_version="12.5" ;;  # >=555.42.06 (CUDA 12.5 Update 1), >=555.42.02 (CUDA 12.5 GA)
+            "550") estimated_cuda_version="12.4" ;;  # >=550.54.15 (CUDA 12.4 Update 1), >=550.54.14 (CUDA 12.4 GA)
+            "545") estimated_cuda_version="12.3" ;;  # >=545.23.08 (CUDA 12.3 Update 1), >=545.23.06 (CUDA 12.3 GA)
+            "535") estimated_cuda_version="12.2" ;;  # >=535.104.05 (CUDA 12.2 Update 2), >=535.86.09 (CUDA 12.2 Update 1), >=535.54.03 (CUDA 12.2 GA)
+            "530") estimated_cuda_version="12.1" ;;  # >=530.30.02 (CUDA 12.1 Update 1 和 CUDA 12.1 GA)
+            "525") estimated_cuda_version="12.0" ;;  # >=525.85.12 (CUDA 12.0 Update 1), >=525.60.13 (CUDA 12.0 GA)
+            "520") estimated_cuda_version="11.8" ;;  # >=520.61.05 (CUDA 11.8 GA)
+            "495") estimated_cuda_version="11.5" ;;
             *) estimated_cuda_version="" ;;
         esac
         
@@ -1298,7 +1192,7 @@ detect_pytorch_cuda_version() {
             echo -e "${YELLOW}警告: 无法根据驱动版本${driver_version}估计CUDA版本${NC}"
         fi
         
-        # 在调试模式下显示GPU信息
+
         if [ $DEBUG_MODE -eq 1 ]; then
             echo -e "${CYAN}[调试] GPU详细信息:${NC}"
             nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader | sed 's/^/  /'
@@ -1307,21 +1201,21 @@ detect_pytorch_cuda_version() {
         echo -e "${YELLOW}警告: 未检测到NVIDIA GPU或无法运行nvidia-smi${NC}"
     fi
     
-    # 检查常见的CUDA安装路径，优先选择与驱动兼容的版本
+
     local found_preferred_cuda=0
     local preferred_nvcc_path=""
     
-    # 如果估计了CUDA版本，尝试找到对应的安装
+
     if [ -n "$estimated_cuda_version" ]; then
         local specific_cuda_path="/usr/local/cuda-${estimated_cuda_version}/bin/nvcc"
         local default_cuda_path="/usr/local/cuda/bin/nvcc"
         
-        # 首先检查具体版本的路径
+
         if [ -f "$specific_cuda_path" ]; then
             preferred_nvcc_path="$specific_cuda_path"
             found_preferred_cuda=1
             echo -e "${GREEN}✓ 找到与驱动匹配的CUDA ${estimated_cuda_version}: ${preferred_nvcc_path}${NC}"
-        # 然后检查默认路径是否为符合版本的软链接
+
         elif [ -f "$default_cuda_path" ]; then
             local default_version=$("$default_cuda_path" -V 2>&1 | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
             if [ "$default_version" = "$estimated_cuda_version" ]; then
@@ -1332,31 +1226,31 @@ detect_pytorch_cuda_version() {
         fi
     fi
     
-    # 如果找到了与驱动匹配的CUDA，使用它
+
     if [ $found_preferred_cuda -eq 1 ] && [ -n "$preferred_nvcc_path" ]; then
         local version_output=$("$preferred_nvcc_path" -V 2>/dev/null)
         if [ -n "$version_output" ]; then
             nvcc_cuda_version=$(echo "$version_output" | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
             echo -e "${GREEN}✓ 使用与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}"
             
-            # 设置环境变量使用首选CUDA
+
             local nvcc_dir=$(dirname "$preferred_nvcc_path")
             export PATH="${nvcc_dir}:$PATH"
             echo -e "${YELLOW}已将匹配的CUDA版本添加到PATH: ${nvcc_dir}${NC}"
             
-            # 在调试模式下显示详情
+
             if [ $DEBUG_MODE -eq 1 ]; then
                 echo -e "${CYAN}[调试] 设置与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}"
                 echo -e "${CYAN}[调试] CUDA路径: ${nvcc_dir}${NC}"
                 echo -e "${CYAN}[调试] 当前PATH: $PATH${NC}"
             fi
         fi
-    # 否则，检查当前PATH中的nvcc
+
     elif command_exists nvcc; then
         local nvcc_path=$(which nvcc)
         nvcc_cuda_version=$(nvcc -V | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
         
-        # 检查PATH中的版本是否与估计版本匹配
+
         if [ -n "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
             echo -e "${YELLOW}警告: PATH中的CUDA版本(${nvcc_cuda_version})与驱动兼容的版本(${estimated_cuda_version})不匹配${NC}"
             echo -e "${YELLOW}推荐使用与驱动匹配的CUDA ${estimated_cuda_version}以获得最佳兼容性${NC}"
@@ -1364,15 +1258,15 @@ detect_pytorch_cuda_version() {
         
         echo -e "${GREEN}✓ 使用PATH中的CUDA版本: ${nvcc_cuda_version} (${nvcc_path})${NC}"
         
-        # 在调试模式下，显示更多CUDA信息
+
         if [ $DEBUG_MODE -eq 1 ]; then
             echo -e "${CYAN}[调试] CUDA详细信息:${NC}"
             nvcc -V | sed 's/^/  /'
             
-            # 检查系统中是否存在多个CUDA版本
+
             echo -e "${CYAN}[调试] 检查系统中的其他CUDA版本:${NC}"
             
-            # 常见CUDA安装路径列表
+
             local cuda_dirs=(
                 "/usr/local/cuda"
                 "/usr/local/cuda-12.8"
@@ -1385,7 +1279,7 @@ detect_pytorch_cuda_version() {
                 "/usr/local/cuda-11.7"
             )
             
-            # 检查每个路径
+
             local found_other=0
             for cuda_dir in "${cuda_dirs[@]}"; do
                 if [ -f "${cuda_dir}/bin/nvcc" ] && [ "${cuda_dir}/bin/nvcc" != "$nvcc_path" ]; then
@@ -1394,7 +1288,7 @@ detect_pytorch_cuda_version() {
                         echo -e "${CYAN}[调试]   发现其他CUDA版本: ${other_version} (${cuda_dir}/bin/nvcc)${NC}"
                         found_other=1
                         
-                        # 如果找到了与估计版本匹配的CUDA，提示用户
+
                         if [ "$other_version" = "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
                             echo -e "${CYAN}[调试]   *** 推荐使用此版本，与NVIDIA驱动更兼容 ***${NC}"
                             echo -e "${CYAN}[调试]   可以通过设置PATH来使用它: export PATH=${cuda_dir}/bin:\$PATH${NC}"
@@ -1410,7 +1304,7 @@ detect_pytorch_cuda_version() {
     else
         echo -e "${YELLOW}未在当前PATH中检测到nvcc命令，尝试其他方法...${NC}"
         
-        # 如果正在使用sudo，尝试在原始用户环境中查找nvcc
+
         if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
             echo -e "${YELLOW}检测到sudo环境，尝试在用户${SUDO_USER}的环境中查找nvcc...${NC}"
             local user_nvcc_path=$(sudo -u "$SUDO_USER" which nvcc 2>/dev/null)
@@ -1418,23 +1312,23 @@ detect_pytorch_cuda_version() {
             if [ -n "$user_nvcc_path" ]; then
                 echo -e "${GREEN}✓ 在用户${SUDO_USER}环境中找到nvcc: ${user_nvcc_path}${NC}"
                 
-                # 检查是否可以获取版本信息
+
                 local version_output=$(sudo -u "$SUDO_USER" nvcc -V 2>/dev/null || "$user_nvcc_path" -V 2>/dev/null)
                 if [ -n "$version_output" ]; then
                     nvcc_cuda_version=$(echo "$version_output" | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
                     echo -e "${GREEN}✓ 检测到CUDA版本: ${nvcc_cuda_version}${NC}"
                     
-                    # 检查是否与驱动兼容
+
                     if [ -n "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
                         echo -e "${YELLOW}警告: 用户环境中的CUDA版本(${nvcc_cuda_version})与驱动兼容的版本(${estimated_cuda_version})不匹配${NC}"
                     fi
                     
-                    # 添加nvcc路径到当前PATH
+
                     local nvcc_dir=$(dirname "$user_nvcc_path")
                     echo -e "${YELLOW}添加${nvcc_dir}到PATH...${NC}"
                     export PATH="$nvcc_dir:$PATH"
                     
-                    # 创建当前用户可以访问的软链接
+
                     local temp_bin_dir="/tmp/cuda_bin_$$"
                     echo -e "${YELLOW}创建临时CUDA工具目录: ${temp_bin_dir}${NC}"
                     mkdir -p "$temp_bin_dir"
@@ -1450,7 +1344,7 @@ detect_pytorch_cuda_version() {
             fi
         fi
         
-        # 如果仍未找到nvcc，终止安装
+
         if [ -z "$nvcc_cuda_version" ]; then
             echo -e "${RED}[错误] 未能检测到有效的CUDA环境。${NC}"
             echo -e "${RED}[错误] 请确保已正确安装NVIDIA CUDA工具包，并将其添加到PATH中。${NC}"
@@ -1468,26 +1362,26 @@ detect_pytorch_cuda_version() {
             
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] 安装终止: 未检测到CUDA环境" >> "$LOG_FILE"
             
-            # 终止安装
+
             exit 1
         fi
     fi
     
-    # 对nvcc_cuda_version处理
+
     cuda_version="$nvcc_cuda_version"
     
-    # 格式化CUDA版本为flashinfer需要的格式
+
     local formatted_cuda_version=""
     if [ -n "$cuda_version" ]; then
-        # 移除小数点，例如11.8变为118
+
         formatted_cuda_version="cu$(echo $cuda_version | sed 's/\.//')"
     else
-        # 这种情况不应该发生，因为前面已经终止了安装
+
         echo -e "${RED}[错误] 无法确定CUDA版本${NC}"
         exit 1
     fi
     
-    # 再次验证CUDA环境
+
     if command_exists nvcc; then
         echo -e "${GREEN}✓ nvcc命令可用${NC}"
         if [ $DEBUG_MODE -eq 1 ]; then
@@ -1495,12 +1389,12 @@ detect_pytorch_cuda_version() {
             echo -e "${CYAN}[调试] nvcc版本: $(nvcc -V | head -n1)${NC}"
         fi
     else
-        # 这种情况不应该发生，因为前面已经做了检查
+
         echo -e "${RED}[错误] nvcc命令检测失败，环境可能已经改变${NC}"
         exit 1
     fi
     
-    # 将版本信息保存到全局变量
+
     CUDA_VERSION="$cuda_version"
     FORMATTED_CUDA_VERSION="$formatted_cuda_version"
     
@@ -1512,7 +1406,7 @@ detect_pytorch_cuda_version() {
 
 # 安装并验证PyTorch
 install_pytorch() {
-    echo -e "${BLUE}[步骤 9.5] 安装GPU版本PyTorch${NC}"
+    echo -e "${BLUE}[步骤 9] 安装GPU版本PyTorch${NC}"
     
     if ! command_exists pip; then
         echo -e "${YELLOW}pip命令不存在，尝试安装...${NC}"
@@ -1529,41 +1423,43 @@ install_pytorch() {
         fi
     fi
     
-    # 根据CUDA版本选择安装命令
+
     local torch_version=""
     local install_success=false
     
     echo -e "${YELLOW}开始安装PyTorch GPU版本 (CUDA ${CUDA_VERSION})...${NC}"
     
-    # 优先使用pip安装，注意使用-f参数指定国内镜像源
-    local pip_torch_cmd=""
-    local torch_mirror="https://download.pytorch.org/whl"
+
+    local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
+    local cuda_formatted="cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
     
-    # 如果在中国大陆，尝试使用国内镜像
-    if ping -c 1 mirrors.tuna.tsinghua.edu.cn &>/dev/null; then
+
+    local pip_torch_cmd=""
+    local torch_mirror=""
+    
+
+    local current_pip_index=$(pip config list | grep -o "index-url=.*" | cut -d= -f2 | tr -d "'")
+    
+    if [[ "$current_pip_index" == *"mirrors.ustc.edu.cn"* ]]; then
+        echo -e "${YELLOW}检测到已配置中科大镜像源，将继续使用${NC}"
+        torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
+    elif [[ "$current_pip_index" == *"mirrors.tuna.tsinghua.edu.cn"* ]]; then
+        echo -e "${YELLOW}检测到已配置清华镜像源，将继续使用${NC}"
         torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
-        echo -e "${YELLOW}检测到国内网络环境，使用清华镜像源${NC}"
     elif ping -c 1 mirrors.ustc.edu.cn &>/dev/null; then
         torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
         echo -e "${YELLOW}检测到国内网络环境，使用中科大镜像源${NC}"
-    fi
-    
-    # 根据CUDA版本构建pip安装命令
-    if [ "${CUDA_VERSION}" = "12.4" ]; then
-        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu124"
-    elif [ "${CUDA_VERSION}" = "12.2" ]; then
-        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu122"
-    elif [ "${CUDA_VERSION}" = "12.1" ]; then
-        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu121"
-    elif [ "${CUDA_VERSION}" = "11.8" ]; then
-        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu118"
-    elif [ "${CUDA_VERSION}" = "11.7" ]; then
-        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu117"
+    elif ping -c 1 mirrors.tuna.tsinghua.edu.cn &>/dev/null; then
+        torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
+        echo -e "${YELLOW}检测到国内网络环境，使用清华镜像源${NC}"
     else
-        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu121"
+        torch_mirror="https://download.pytorch.org/whl"
     fi
     
-    # 执行pip安装
+
+    pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
+    
+
     echo -e "${CYAN}[命令] ${pip_torch_cmd}${NC}"
     if eval "$pip_torch_cmd"; then
         echo -e "${GREEN}✓ PyTorch通过pip安装成功${NC}"
@@ -1571,7 +1467,7 @@ install_pytorch() {
     else
         echo -e "${YELLOW}通过pip安装PyTorch失败，尝试通过conda安装...${NC}"
         
-        # 使用conda安装
+
         if command_exists conda; then
             echo -e "${CYAN}[命令] conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia${NC}"
             if conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia; then
@@ -1587,26 +1483,26 @@ install_pytorch() {
         fi
     fi
     
-    # 验证PyTorch安装和CUDA可用性
+
     if [ "$install_success" = true ]; then
         echo -e "${YELLOW}验证PyTorch和CUDA...${NC}"
         
-        # 获取PyTorch版本
+
         torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
             echo -e "${GREEN}✓ PyTorch版本: ${torch_version}${NC}"
             TORCH_VERSION="$torch_version"
             
-            # 格式化PyTorch版本为flashinfer需要的格式
+
             FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d '.' -f 1,2)"
             echo -e "${BLUE}格式化的PyTorch版本：${FORMATTED_TORCH_VERSION}${NC}"
             
-            # 检查CUDA是否可用
+
             if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" &>/dev/null; then
                 local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
                 echo -e "${GREEN}✓ CUDA可用，PyTorch报告的CUDA版本: ${cuda_torch_version}${NC}"
                 
-                # 更新CUDA_VERSION如果通过PyTorch检测到
+
                 if [ -n "$cuda_torch_version" ] && [ -z "$CUDA_VERSION" ]; then
                     CUDA_VERSION="$cuda_torch_version"
                     FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
@@ -1629,72 +1525,72 @@ install_pytorch() {
     return 1
 }
 
-# 6. 初始化和更新git子模块
+# 6. 初始化git子模块
 init_git_submodules() {
-    echo -e "${BLUE}[INFO] 初始化和更新git子模块${NC}"
+    log "INFO" "初始化git子模块"
     
-    # 确保在git仓库目录中
-    if [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${RED}[ERROR] 目录 $INSTALL_DIR 不存在${NC}"
-        return 1
-    fi
-    
+
     cd "$INSTALL_DIR" || {
-        echo -e "${RED}[ERROR] 无法进入 $INSTALL_DIR 目录${NC}"
+        log "ERROR" "无法进入安装目录 $INSTALL_DIR"
         return 1
     }
     
-    # 检查是否为git仓库
-    if [ ! -d ".git" ]; then
-        echo -e "${RED}[ERROR] $INSTALL_DIR 不是一个git仓库${NC}"
-        return 1
-    fi
-    
-    # 如果使用了镜像站点，修改子模块URL
-    if [ "$BEST_GITHUB_SITE" != "github.com" ] && [ -n "$BEST_GITHUB_SITE" ]; then
-        echo -e "${YELLOW}[INFO] 正在将子模块URL修改为使用镜像站点 $BEST_GITHUB_SITE...${NC}"
+
+    if [ $USE_GHPROXY -eq 1 ]; then
+        log "INFO" "使用ghfast.top代理加速子模块克隆"
         
-        # 检查.gitmodules文件是否存在
+
         if [ -f ".gitmodules" ]; then
-            # 备份原始.gitmodules文件
-            cp .gitmodules .gitmodules.bak
+            log "INFO" "修改.gitmodules使用ghfast.top代理"
+            sed -i.bak "s|https://github.com|${GHPROXY_URL}/https://github.com|g" .gitmodules
+            log "SUCCESS" "已为子模块添加ghfast.top代理前缀"
             
-            # 使用sed替换所有github.com为镜像站点
-            sed -i "s|https://github.com|https://$BEST_GITHUB_SITE|g" .gitmodules
-            echo -e "${GREEN}✓ 已修改.gitmodules文件中的URL${NC}"
+
+            log "INFO" "配置git全局设置，使用ghfast.top代理"
+            git config --global url."${GHPROXY_URL}/https://github.com/".insteadOf "https://github.com/"
             
-            # 获取所有子模块路径
-            local submodules=$(git config --file .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{ print $2 }')
+
+            if [ $DEBUG_MODE -eq 1 ]; then
+                log "DEBUG" "当前git配置:"
+                git config --global --get-regexp url
+                log "DEBUG" "当前.gitmodules内容:"
+                cat .gitmodules
+            fi
+        fi
+    elif [ "$BEST_GITHUB_SITE" != "github.com" ] && [ $IS_PROXY_SITE -eq 0 ]; then
+
+        if [ -f ".gitmodules" ]; then
+            log "INFO" "修改.gitmodules使用镜像站点 $BEST_GITHUB_SITE"
+            sed -i.bak "s|https://github.com|https://${BEST_GITHUB_SITE}|g" .gitmodules
             
-            # 为每个子模块更新URL
-            for submodule in $submodules; do
-                # 获取子模块的新URL（从.gitmodules读取）
-                local new_url=$(git config --file .gitmodules --get "submodule.$submodule.url")
-                
-                echo -e "${YELLOW}[INFO] 更新子模块 $submodule 的URL: $new_url${NC}"
-                # 配置子模块的URL
-                git config "submodule.$submodule.url" "$new_url"
-            done
-            
-            echo -e "${GREEN}✓ 已更新所有子模块的URL配置${NC}"
-        else
-            echo -e "${YELLOW}[WARN] 未找到.gitmodules文件，跳过URL修改${NC}"
+
+            git config --global url."https://${BEST_GITHUB_SITE}/".insteadOf "https://github.com/"
         fi
     fi
     
-    echo -e "${YELLOW}[INFO] 正在初始化git子模块...${NC}"
-    if git submodule init; then
-        echo -e "${GREEN}✓ git子模块初始化完成${NC}"
-    else
-        echo -e "${RED}[ERROR] git子模块初始化失败${NC}"
-        return 1
-    fi
+
+    git submodule sync
     
-    # 使用改进的进度显示函数更新子模块
-    if update_git_submodules_with_progress; then
-        echo -e "${GREEN}✓ git子模块配置全部完成${NC}"
+
+    log "INFO" "执行git子模块初始化..."
+    if git submodule init; then
+        log "SUCCESS" "git子模块初始化完成"
         return 0
     else
+        log "ERROR" "git子模块初始化失败"
+
+        if [ -f ".gitmodules.bak" ]; then
+            mv .gitmodules.bak .gitmodules
+            git submodule sync
+        fi
+        
+
+        if [ $USE_GHPROXY -eq 1 ]; then
+            git config --global --unset url."${GHPROXY_URL}/https://github.com/".insteadOf
+        elif [ "$BEST_GITHUB_SITE" != "github.com" ] && [ $IS_PROXY_SITE -eq 0 ]; then
+            git config --global --unset url."https://${BEST_GITHUB_SITE}/".insteadOf
+        fi
+        
         return 1
     fi
 }
@@ -1715,7 +1611,7 @@ install_libnuma() {
 set_use_numa() {
     echo -e "${BLUE}[步骤 8] 设置USE_NUMA环境变量${NC}"
     
-    # 使用全局USE_NUMA变量的值
+
     if [ $USE_NUMA -eq 1 ]; then
         export USE_NUMA=1
         echo -e "${GREEN}✓ 已设置USE_NUMA=1${NC}"
@@ -1725,21 +1621,21 @@ set_use_numa() {
     fi
 }
 
-# 9. 下载预编译的flashinfer - 改进版，自动匹配PyTorch和CUDA版本
+# 9. 下载预编译的flashinfer
 download_flashinfer() {
     echo -e "${BLUE}[INFO] 安装flashinfer${NC}"
     
-    # 确保已检测到PyTorch和CUDA版本
+
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
         echo -e "${YELLOW}CUDA或PyTorch版本信息缺失，尝试重新检测...${NC}"
         
-        # 验证PyTorch安装和CUDA可用性
+
         local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
             TORCH_VERSION="$torch_version"
             FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d '.' -f 1,2)"
             
-            # 检测CUDA版本
+
             local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
             if [ -n "$cuda_torch_version" ]; then
                 CUDA_VERSION="$cuda_torch_version"
@@ -1752,11 +1648,11 @@ download_flashinfer() {
         fi
     fi
     
-    # 处理CUDA版本兼容性 - 如果版本大于12.4，使用12.4
+
     local actual_cuda_version="$CUDA_VERSION"
     local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
     
-    # 提取CUDA主版本号和次版本号
+
     local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
     local cuda_minor=$(echo "$CUDA_VERSION" | cut -d. -f2)
     
@@ -1765,20 +1661,20 @@ download_flashinfer() {
         FORMATTED_CUDA_VERSION="cu124"
     fi
     
-    # 构建URL
+
     local flashinfer_url="https://flashinfer.ai/whl/${FORMATTED_CUDA_VERSION}/${FORMATTED_TORCH_VERSION}"
     echo -e "${YELLOW}尝试从 ${flashinfer_url} 安装flashinfer...${NC}"
     
-    # 创建临时目录用于下载
+
     local temp_dir="/tmp/flashinfer_download_$$"
     mkdir -p "$temp_dir"
     
-    # 获取wheel文件列表
+
     echo -e "${YELLOW}获取可用的wheel文件列表...${NC}"
     local wheel_list_file="$temp_dir/wheel_list.html"
     
     if wget -q -O "$wheel_list_file" "$flashinfer_url"; then
-        # 解析HTML找到最新的wheel文件
+
         local wheel_file_name=$(grep -o 'flashinfer_python-[0-9.]*-cp[0-9]*-cp[0-9]*-linux_x86_64.whl' "$wheel_list_file" | sort -V | tail -n 1)
         
         if [ -n "$wheel_file_name" ]; then
@@ -1788,22 +1684,22 @@ download_flashinfer() {
             echo -e "${YELLOW}找到wheel文件: ${wheel_file_name}${NC}"
             echo -e "${YELLOW}开始下载: ${wheel_url}${NC}"
             
-            # 下载wheel文件
+
             if wget -q --show-progress -O "$wheel_file" "$wheel_url"; then
                 echo -e "${GREEN}✓ 下载成功，开始安装本地wheel文件${NC}"
                 
-                # 安装本地wheel文件
+
                 if pip install "$wheel_file"; then
                     echo -e "${GREEN}✓ flashinfer安装成功${NC}"
                     
-                    # 验证安装
+
                     if python -c "import flashinfer" &>/dev/null; then
                         local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
                         if [ -n "$version" ]; then
                             echo -e "${GREEN}✓ flashinfer导入测试成功，版本: $version${NC}"
-                            # 清理临时文件
+
                             rm -rf "$temp_dir"
-                            # 恢复原始CUDA版本值
+
                             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                             return 0
                         else
@@ -1825,40 +1721,40 @@ download_flashinfer() {
         echo -e "${YELLOW}无法获取wheel文件列表${NC}"
     fi
     
-    # 如果直接安装方式失败，尝试使用pip的-f选项
+
     echo -e "${YELLOW}尝试使用pip的-f选项安装flashinfer...${NC}"
     if pip install flashinfer-python -f "$flashinfer_url"; then
         echo -e "${GREEN}✓ 通过pip -f选项安装flashinfer成功${NC}"
         
-        # 验证安装
+
         if python -c "import flashinfer" &>/dev/null; then
             local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
             if [ -n "$version" ]; then
                 echo -e "${GREEN}✓ flashinfer导入测试成功，版本: $version${NC}"
-                # 清理临时文件
+
                 rm -rf "$temp_dir"
-                # 恢复原始CUDA版本值
+
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                 return 0
             fi
         fi
     fi
     
-    # 清理临时文件
+
     rm -rf "$temp_dir"
     
-    # 从源代码安装
+
     echo -e "${YELLOW}从源代码安装flashinfer...${NC}"
     
-    # 创建临时目录
+
     local temp_dir="/tmp/flashinfer_build_$$"
     mkdir -p "$temp_dir"
     cd "$temp_dir" || return 1
     
-    # 克隆仓库
+
     echo -e "${YELLOW}克隆flashinfer仓库...${NC}"
     if [ -n "$BEST_GITHUB_SITE" ] && [ "$BEST_GITHUB_SITE" != "github.com" ]; then
-        # 使用最佳GitHub镜像站点
+
         local repo_url="https://${BEST_GITHUB_SITE}/flashinfer-ai/flashinfer.git"
     else
         local repo_url="https://github.com/flashinfer-ai/flashinfer.git"
@@ -1868,24 +1764,24 @@ download_flashinfer() {
         cd flashinfer || return 1
         echo -e "${YELLOW}开始编译安装flashinfer...${NC}"
         
-        # 设置编译环境变量
+
         export MAX_JOBS="$MAX_JOBS"
         if [ $USE_NUMA -eq 1 ]; then
             export USE_NUMA=1
         fi
         
-        # 安装
+
         if pip install -e . -v; then
             echo -e "${GREEN}✓ flashinfer从源码安装成功${NC}"
             
-            # 验证安装
+
             if python -c "import flashinfer" &>/dev/null; then
                 local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
                 echo -e "${GREEN}✓ flashinfer导入测试成功，版本: ${version:-未知}${NC}"
-                # 清理临时目录
+
                 cd "$INSTALL_DIR" || return 1
                 rm -rf "$temp_dir"
-                # 恢复原始CUDA版本值
+
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                 return 0
             else
@@ -1898,20 +1794,20 @@ download_flashinfer() {
         echo -e "${RED}[ERROR] 克隆flashinfer仓库失败${NC}"
     fi
     
-    # 清理临时目录
+
     cd "$INSTALL_DIR" || return 1
     rm -rf "$temp_dir"
     
-    # 恢复原始CUDA版本值
+
     FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
     return 1
 }
 
 # 11. 执行make dev_install
 make_dev_install() {
-    echo -e "${BLUE}[步骤 11] 执行make dev_install${NC}"
+    echo -e "${BLUE}[步骤 12] 执行make dev_install${NC}"
     
-    # 确保在仓库目录中
+
     if [ ! -d "$INSTALL_DIR" ]; then
         echo -e "${RED}× 目录 $INSTALL_DIR 不存在${NC}"
         return 1
@@ -1922,7 +1818,7 @@ make_dev_install() {
         return 1
     }
     
-    # 检查make命令是否存在
+
     if ! command_exists make; then
         echo -e "${RED}× make命令不存在，尝试安装...${NC}"
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
@@ -1946,7 +1842,7 @@ make_dev_install() {
         fi
     fi
     
-    # 执行make dev_install并保存错误日志
+
     echo -e "${YELLOW}开始执行make dev_install（这可能需要一些时间）...${NC}"
     echo -e "${CYAN}编译过程中可能会显示一些警告，这是正常现象${NC}"
     
@@ -1955,7 +1851,7 @@ make_dev_install() {
     
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
     
-    # 执行make dev_install，将标准输出和错误输出都保存到变量和日志文件
+
     if make_output=$(make dev_install 2>&1); then
         echo -e "${GREEN}✓ make dev_install执行成功${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
@@ -1965,13 +1861,13 @@ make_dev_install() {
         echo -e "${RED}× make dev_install执行失败 (错误码: $exit_code)${NC}"
         echo -e "${YELLOW}编译错误已保存到 $make_error_file${NC}"
         
-        # 保存详细错误信息到日志文件
+
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行失败 (错误码: $exit_code)" >> "$make_error_file"
         echo "==================== 错误输出 ====================" >> "$make_error_file"
         echo "$make_output" >> "$make_error_file"
         echo "==================================================" >> "$make_error_file"
         
-        # 显示错误摘要
+
         echo -e "${YELLOW}错误摘要:${NC}"
         echo "$make_output" | tail -n 15
         
@@ -1989,9 +1885,9 @@ make_dev_install() {
 
 # 12. 更新libstdc++6
 update_libstdcpp6() {
-    echo -e "${BLUE}[步骤 12] 更新libstdc++6${NC}"
+    echo -e "${BLUE}[步骤 13] 更新libstdc++6${NC}"
     
-    # 检查add-apt-repository命令是否存在
+
     if ! command_exists add-apt-repository; then
         echo -e "${YELLOW}add-apt-repository命令不存在，尝试安装...${NC}"
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
@@ -2018,7 +1914,7 @@ update_libstdcpp6() {
 
 # 13. 安装libstdcxx-ng
 install_libstdcxx_ng() {
-    echo -e "${BLUE}[步骤 13] 安装libstdcxx-ng${NC}"
+    echo -e "${BLUE}[步骤 14] 安装libstdcxx-ng${NC}"
     if retry_command_with_logging "conda install -c conda-forge libstdcxx-ng -y" 300; then
         echo -e "${GREEN}✓ libstdcxx-ng安装成功${NC}"
         return 0
@@ -2033,12 +1929,12 @@ install_libstdcxx_ng() {
 check_versions() {
     echo -e "${BLUE}===== 安装组件版本检查 =====${NC}"
     
-    # 使用python检查各组件的版本
+
     cd "$INSTALL_DIR" || return 1
     
     echo -e "${YELLOW}● KTransformers 安装信息${NC}"
     
-    # 检查KTransformers包版本
+
     if python -c "import ktransformers" &>/dev/null; then
         local ktrans_version=$(python -c "import ktransformers; print(ktransformers.__version__)" 2>/dev/null)
         echo -e "  ○ KTransformers版本: ${GREEN}${ktrans_version:-已安装}${NC}"
@@ -2046,18 +1942,18 @@ check_versions() {
         echo -e "  ○ KTransformers版本: ${RED}未安装或无法导入${NC}"
     fi
     
-    # 检查PyTorch版本
+
     if python -c "import torch" &>/dev/null; then
         local torch_version=$(python -c "import torch; print(torch.__version__)" 2>/dev/null)
         local cuda_available=$(python -c "import torch; print('可用' if torch.cuda.is_available() else '不可用')" 2>/dev/null)
         echo -e "  ○ PyTorch版本: ${GREEN}${torch_version}${NC} (CUDA: ${GREEN}${cuda_available}${NC})"
         
-        # 如果CUDA可用，显示GPU信息
+
         if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" &>/dev/null; then
             local gpu_name=$(python -c "import torch; print(torch.cuda.get_device_name(0))" 2>/dev/null)
             echo -e "  ○ GPU设备: ${GREEN}${gpu_name}${NC}"
             
-            # 显示更多CUDA信息
+
             local cuda_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
             echo -e "  ○ CUDA版本: ${GREEN}${cuda_version}${NC}"
         fi
@@ -2067,7 +1963,7 @@ check_versions() {
     
     echo -e "${YELLOW}● 加速组件${NC}"
     
-    # 检查FlashInfer版本
+
     if python -c "import flashinfer" &>/dev/null; then
         local flashinfer_version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
         echo -e "  ○ FlashInfer版本: ${GREEN}${flashinfer_version:-已安装}${NC}"
@@ -2075,7 +1971,7 @@ check_versions() {
         echo -e "  ○ FlashInfer版本: ${RED}未安装或无法导入${NC}"
     fi
     
-    # 检查是否有Flash Attention
+
     if python -c "import flash_attn" &>/dev/null; then
         local flash_attn_version=$(python -c "import flash_attn; print(flash_attn.__version__)" 2>/dev/null)
         echo -e "  ○ Flash Attention版本: ${GREEN}${flash_attn_version:-已安装}${NC}"
@@ -2083,17 +1979,17 @@ check_versions() {
         echo -e "  ○ Flash Attention版本: ${RED}未安装或无法导入${NC}"
     fi
     
-    # 检查USE_NUMA设置
+
     if [ $USE_NUMA -eq 1 ]; then
         echo -e "  ○ USE_NUMA环境变量: ${GREEN}已启用${NC}"
     else
         echo -e "  ○ USE_NUMA环境变量: ${YELLOW}未启用${NC}"
     fi
     
-    # 检查编译线程数
+
     echo -e "  ○ 编译最大线程数: ${GREEN}${MAX_JOBS}${NC}"
     
-    # 显示成功消息
+
     echo -e "\n${GREEN}✓ KTransformers安装完成!${NC}"
     echo -e "${YELLOW}您可以通过以下命令进入环境:${NC}"
     echo -e "${BLUE}  conda activate ${ENV_NAME}${NC}"
@@ -2103,7 +1999,7 @@ check_versions() {
     echo -e "\n${GREEN}祝您使用愉快!${NC}\n"
 }
 
-# 5. 激活环境并进入仓库 - 增强版，添加修复功能
+# 5. 激活环境并进入仓库
 activate_conda_env() {
     echo -e "${BLUE}[步骤 5] 激活conda环境 $ENV_NAME 并进入仓库${NC}"
     
@@ -2125,8 +2021,8 @@ if [ -f "\$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
     . "\$HOME/miniconda3/etc/profile.d/conda.sh"
 elif [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
     . "/opt/conda/etc/profile.d/conda.sh"
-elif [ -f "/home/oak/miniconda3/etc/profile.d/conda.sh" ]; then
-    . "/home/oak/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "~/miniconda3/etc/profile.d/conda.sh" ]; then
+    . "~/miniconda3/etc/profile.d/conda.sh"
 else
     echo "conda.sh not found, conda may not be properly installed"
     exit 1
@@ -2149,10 +2045,10 @@ EOF
     
     chmod +x activate_env.sh
     
-    # 激活conda环境 - 尝试多种方式
+
     local activation_success=false
     
-    # 方法1: 使用conda.sh
+
     if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
         echo -e "${YELLOW}尝试使用conda.sh激活环境...${NC}"
         . "$HOME/miniconda3/etc/profile.d/conda.sh"
@@ -2162,7 +2058,7 @@ EOF
         fi
     fi
     
-    # 方法2: 如果是root用户，尝试其他可能的conda.sh位置
+
     if [ "$(id -u)" -eq 0 ] && [ "$activation_success" = false ]; then
         local non_root_user=$(who | awk '{print $1}' | head -n 1)
         if [ -n "$non_root_user" ] && [ -f "/home/$non_root_user/miniconda3/etc/profile.d/conda.sh" ]; then
@@ -2175,17 +2071,17 @@ EOF
         fi
     fi
     
-    # 方法3: 尝试oak用户的conda.sh位置
-    if [ "$activation_success" = false ] && [ -f "/home/oak/miniconda3/etc/profile.d/conda.sh" ]; then
-        echo -e "${YELLOW}尝试使用oak用户的conda.sh激活环境...${NC}"
-        . "/home/oak/miniconda3/etc/profile.d/conda.sh"
+
+    if [ "$activation_success" = false ] && [ -f "~/miniconda3/etc/profile.d/conda.sh" ]; then
+        echo -e "${YELLOW}尝试使用用户的conda.sh激活环境...${NC}"
+        . "~/miniconda3/etc/profile.d/conda.sh"
         if conda activate $ENV_NAME 2>/dev/null; then
             activation_success=true
             echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
         fi
     fi
     
-    # 方法4: 尝试直接使用conda命令
+
     if [ "$activation_success" = false ] && command_exists conda; then
         echo -e "${YELLOW}尝试直接使用conda命令激活环境...${NC}"
         conda activate $ENV_NAME 2>/dev/null
@@ -2195,21 +2091,20 @@ EOF
         fi
     fi
     
-    # 如果所有方法都失败
+
     if [ "$activation_success" = false ]; then
         echo -e "${YELLOW}无法激活环境 $ENV_NAME，尝试修复...${NC}"
         
-        # 尝试修复conda初始化
+
         if command_exists conda; then
             echo -e "${YELLOW}重新初始化conda...${NC}"
             conda init bash
             
-            # 重新加载shell环境
+
             if [ -f "$HOME/.bashrc" ]; then
                 echo -e "${YELLOW}重新加载shell环境...${NC}"
                 . "$HOME/.bashrc"
-                
-                # 再次尝试激活
+
                 if conda activate $ENV_NAME 2>/dev/null; then
                     activation_success=true
                     echo -e "${GREEN}✓ 修复后成功激活环境 $ENV_NAME${NC}"
@@ -2225,7 +2120,7 @@ EOF
         fi
     fi
     
-    # 切换到安装目录
+
     if [ -d "$INSTALL_DIR" ]; then
         cd "$INSTALL_DIR" || echo -e "${RED}切换到 $INSTALL_DIR 失败${NC}"
     else
@@ -2234,7 +2129,7 @@ EOF
     
     echo -e "${GREEN}✓ 已创建激活脚本并尝试进入仓库目录${NC}"
     
-    # 如果无法激活，提示用户
+
     if [ "$activation_success" = false ]; then
         echo -e "${YELLOW}提示: 安装完成后，请执行以下命令激活环境:${NC}"
         echo -e "${BLUE}source $(pwd)/activate_env.sh${NC}"
@@ -2243,248 +2138,448 @@ EOF
     return 0
 }
 
-# 修改的工具函数：估算git子模块的大小和进度
+# 工具函数
 estimate_git_repo_size() {
     local repo_url="$1"
     local temp_file=$(mktemp)
     
-    # 使用git ls-remote获取仓库引用信息
+
     timeout 30 git ls-remote --heads --tags "$repo_url" > "$temp_file" 2>/dev/null
     
     if [ $? -ne 0 ]; then
         rm -f "$temp_file"
-        echo "0" # 无法获取信息，返回0
+        echo "0"
         return
     fi
     
-    # 计算大致大小：每个引用计算为2MB的估计大小
+
     local ref_count=$(wc -l < "$temp_file")
     local estimated_size=$((ref_count * 2))
     
     rm -f "$temp_file"
     
-    # 返回估计大小（MB）
+
     echo "$estimated_size"
 }
 
-# 改进的git子模块更新进度条
+# 更新git子模块
 update_git_submodules_with_progress() {
-    echo -e "${YELLOW}正在更新git子模块，这可能需要一些时间...${NC}"
+    log "INFO" "更新git子模块，克隆和更新仓库"
     
-    # 创建临时输出文件
-    local output_file=$(mktemp)
+    # 进入安装目录
+    cd "$INSTALL_DIR" || {
+        log "ERROR" "无法进入安装目录 $INSTALL_DIR"
+        return 1
+    }
     
-    # 启动git命令并将输出重定向到临时文件和终端
-    git submodule update --init --recursive --progress 2>&1 | tee "$output_file"
-    local update_result=$?
+
+    if [ $USE_GHPROXY -eq 1 ]; then
+
+        if [ -f ".gitmodules" ] && ! grep -q "$GHPROXY_URL" .gitmodules; then
+            log "INFO" "修改.gitmodules使用ghfast.top代理"
+            sed -i.bak "s|https://github.com|${GHPROXY_URL}/https://github.com|g" .gitmodules
+            log "SUCCESS" "已为子模块添加ghfast.top代理前缀"
+            
+
+            git submodule sync
+            log "INFO" "已同步子模块配置"
+            
+
+            log "INFO" "配置git全局设置，使用ghfast.top代理"
+            git config --global url."${GHPROXY_URL}/https://github.com/".insteadOf "https://github.com/"
+            log "SUCCESS" "git全局配置已更新"
+        fi
+    fi
     
-    # 检查更新结果
-    if [ $update_result -eq 0 ]; then
-        echo -e "${GREEN}✓ git子模块克隆和更新成功${NC}"
-        rm -f "$output_file"  # 清理临时文件
+
+    local total_submodules=$(git config --file .gitmodules --get-regexp "^submodule\..*\.path$" | wc -l)
+    
+    if [ "$total_submodules" -eq 0 ]; then
+        log "WARN" "未检测到git子模块"
+        return 0
+    fi
+    
+    log "INFO" "检测到 $total_submodules 个git子模块"
+    
+
+    if [ $DEBUG_MODE -eq 1 ]; then
+        log "DEBUG" "当前.gitmodules内容:"
+        cat .gitmodules
+    fi
+    
+
+    local tmpfile=$(mktemp)
+    
+
+    if [ $DEBUG_MODE -eq 1 ] && [ $GIT_DEBUG_MODE -eq 1 ]; then
+
+        export GIT_TRACE=1
+        export GIT_CURL_VERBOSE=1
+        log "DEBUG" "Git调试模式已启用，将显示详细日志"
+    elif [ $DEBUG_MODE -eq 1 ]; then
+        log "DEBUG" "Git调试模式已禁用，避免过多日志输出"
+    fi
+    
+    log "INFO" "开始更新子模块，这可能需要一些时间..."
+    
+
+    if [ $DEBUG_MODE -eq 1 ]; then
+
+        git submodule update --init --recursive --progress 2>&1 | tee "$tmpfile"
+        local exit_code=${PIPESTATUS[0]}
+    else
+
+        git submodule update --init --recursive --progress 2>&1 | grep --line-buffered -E "Receiving objects:|Resolving deltas:" | tee "$tmpfile"
+        local exit_code=${PIPESTATUS[0]}
+    fi
+    
+
+    if [ $DEBUG_MODE -eq 1 ] && [ $GIT_DEBUG_MODE -eq 1 ]; then
+
+        unset GIT_TRACE
+        unset GIT_CURL_VERBOSE
+        log "DEBUG" "Git调试模式已重置"
+    elif [ $DEBUG_MODE -eq 1 ]; then
+        log "DEBUG" "Git子模块更新完成"
+    fi
+    
+    if [ $exit_code -eq 0 ]; then
+        log "SUCCESS" "git子模块克隆和更新成功"
+
+        rm -f "$tmpfile"
+        
+
+        if [ -f ".gitmodules.bak" ] && [ $USE_GHPROXY -eq 1 ]; then
+            log "INFO" "恢复原始.gitmodules文件"
+            mv .gitmodules.bak .gitmodules
+            git submodule sync
+            
+
+            log "INFO" "恢复git全局配置"
+            git config --global --unset url."${GHPROXY_URL}/https://github.com/".insteadOf
+        fi
+        
         return 0
     else
-        echo -e "${RED}× git子模块更新失败 (错误码: $update_result)${NC}"
+        log "ERROR" "git子模块更新失败"
+        log "DEBUG" "错误详情: $(cat "$tmpfile")"
         
-        # 显示错误信息
-        if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${YELLOW}错误输出:${NC}"
-            tail -n 10 "$output_file"
-            echo -e "${YELLOW}(完整输出已记录到日志)${NC}"
-            cat "$output_file" >> "$LOG_FILE"
-        fi
-        
-        echo -e "${YELLOW}尝试使用--jobs=4参数并行更新子模块...${NC}"
-        
-        # 并行更新子模块
-        git submodule update --init --recursive --jobs=4
-        update_result=$?
-        
-        if [ $update_result -eq 0 ]; then
-            echo -e "${GREEN}✓ git子模块并行更新成功${NC}"
-            rm -f "$output_file"  # 清理临时文件
+
+        log "WARN" "尝试使用非并行方式更新子模块..."
+        if git submodule update --init --recursive --jobs=1 --progress; then
+            log "SUCCESS" "使用非并行方式更新子模块成功"
+            rm -f "$tmpfile"
             return 0
-        else
-            echo -e "${RED}× git子模块更新失败（错误码: $update_result），将继续安装流程${NC}"
-            echo -e "${YELLOW}您可能需要在安装完成后手动更新子模块${NC}"
-            rm -f "$output_file"  # 清理临时文件
-            return $update_result
         fi
+        
+        rm -f "$tmpfile"
+        return 1
     fi
 }
 
 # 安装flash_attn
 install_flash_attn() {
-    echo -e "${BLUE}[INFO] 安装Flash Attention${NC}"
+    log "INFO" "安装Flash Attention"
     
-    # 确保已检测到PyTorch和CUDA版本
+
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
-        echo -e "${YELLOW}CUDA或PyTorch版本信息缺失，尝试重新检测...${NC}"
+        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..."
         
-        # 验证PyTorch安装和CUDA可用性
+
         local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
             TORCH_VERSION="$torch_version"
             FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d. -f1,2 | sed 's/\.//')"
             
-            # 检测CUDA版本
+
             local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
             if [ -n "$cuda_torch_version" ]; then
                 CUDA_VERSION="$cuda_torch_version"
                 FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
-                echo -e "${GREEN}✓ 从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})${NC}"
+                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})"
             fi
         else
-            echo -e "${RED}[ERROR] 无法检测到PyTorch版本，请确保PyTorch已正确安装${NC}"
+            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装"
             return 1
         fi
     fi
     
-    # 获取Python版本
+
     local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
     if [ -z "$python_version" ]; then
-        echo -e "${RED}[ERROR] 无法检测到Python版本${NC}"
+        log "ERROR" "无法检测到Python版本"
         return 1
     fi
     
-    # 处理CUDA版本兼容性 - 如果版本大于12.4，使用12.4
+
     local actual_cuda_version="$CUDA_VERSION"
     local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
     
-    # 提取CUDA主版本号和次版本号
+
     local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
-    local cuda_minor=$(echo "$CUDA_VERSION" | cut -d. -f2)
     
-    if [ "$cuda_major" -gt 12 ] || ([ "$cuda_major" -eq 12 ] && [ "$cuda_minor" -gt 4 ]); then
-        echo -e "${YELLOW}检测到CUDA版本 ${CUDA_VERSION} 高于12.4，将使用cu124预编译包（向下兼容）${NC}"
-        FORMATTED_CUDA_VERSION="cu124"
-    fi
+
+    FORMATTED_CUDA_VERSION="cu${cuda_major}"
     
-    # 修改CUDA版本格式，只保留主版本号，例如cu124改为cu12
-    local flash_attn_cuda_version="cu$(echo $CUDA_VERSION | cut -d. -f1)"
+    log "INFO" "检测到环境信息:"
+    log "INFO" "- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})"
+    log "INFO" "- 将使用CUDA大版本: ${FORMATTED_CUDA_VERSION} 进行安装"
+    log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})"
+    log "INFO" "- Python版本: ${python_version}"
     
-    echo -e "${YELLOW}检测到环境信息:${NC}"
-    echo -e "${YELLOW}- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})${NC}"
-    if [ "$actual_formatted_cuda" != "$FORMATTED_CUDA_VERSION" ]; then
-        echo -e "${YELLOW}- 将使用兼容版本: ${FORMATTED_CUDA_VERSION} 进行安装${NC}"
-    fi
-    echo -e "${YELLOW}- 用于Flash Attention的CUDA版本: ${flash_attn_cuda_version}${NC}"
-    echo -e "${YELLOW}- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})${NC}"
-    echo -e "${YELLOW}- Python版本: ${python_version}${NC}"
+
+    log "INFO" "尝试安装预编译的Flash Attention..."
     
-    # 尝试安装预编译的flash-attention
-    echo -e "${YELLOW}尝试安装预编译的Flash Attention...${NC}"
-    
-    # 构建预编译包URL，使用主版本号格式的CUDA版本
+
     local flash_attn_version="2.7.4.post1"
-    local flash_attn_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/flash_attn-${flash_attn_version}+${flash_attn_cuda_version}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
+    local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
+    local package_name="flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
     
-    echo -e "${YELLOW}尝试下载: ${flash_attn_url}${NC}"
-    
-    # 记录下载URL到日志文件
-    if [ -n "$LOG_FILE" ]; then
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 尝试下载Flash Attention: ${flash_attn_url}" >> "$LOG_FILE"
-    fi
-    
-    # 创建临时目录用于下载
-    local temp_dir="/tmp/flash_attn_download_$$"
-    mkdir -p "$temp_dir"
-    local wheel_file="$temp_dir/flash_attn.whl"
-    
-    # 使用wget下载wheel文件
-    echo -e "${YELLOW}使用wget下载wheel文件到本地...${NC}"
-    if wget -q --show-progress -O "$wheel_file" "$flash_attn_url"; then
-        echo -e "${GREEN}✓ 下载成功，开始安装本地wheel文件${NC}"
-        
-        # 安装本地wheel文件
-        if pip install "$wheel_file"; then
-            echo -e "${GREEN}✓ Flash Attention预编译包安装成功${NC}"
-            
-            # 验证安装
-            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
-                # 记录成功信息到日志
-                if [ -n "$LOG_FILE" ]; then
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] Flash Attention预编译包安装成功" >> "$LOG_FILE"
-                fi
-                # 清理临时文件
-                rm -rf "$temp_dir"
-                # 恢复原始CUDA版本值
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                return 0
-            else
-                echo -e "${YELLOW}Flash Attention安装成功但导入失败，尝试从源码安装...${NC}"
-                if [ -n "$LOG_FILE" ]; then
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] Flash Attention安装成功但导入失败，尝试从源码安装" >> "$LOG_FILE"
-                fi
-            fi
-        else
-            echo -e "${YELLOW}本地wheel文件安装失败，尝试从源码安装...${NC}"
-            if [ -n "$LOG_FILE" ]; then
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 本地wheel文件安装失败，尝试从源码安装" >> "$LOG_FILE"
-            fi
-        fi
+
+    local flash_attn_url
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+
+        flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
+        log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}"
     else
-        echo -e "${YELLOW}下载wheel文件失败，尝试从源码安装...${NC}"
-        if [ -n "$LOG_FILE" ]; then
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 下载wheel文件失败，尝试从源码安装" >> "$LOG_FILE"
-        fi
+        flash_attn_url="${base_url}/${package_name}"
+        log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}"
     fi
     
-    # 清理临时文件
-    rm -rf "$temp_dir"
+    log "INFO" "尝试下载: ${flash_attn_url}"
     
-    # 从源码安装
-    echo -e "${YELLOW}准备从源码安装Flash Attention...${NC}"
-    
-    # 安装ninja
-    echo -e "${YELLOW}安装ninja构建工具...${NC}"
-    pip uninstall -y ninja && pip install ninja
-    
-    # 设置编译环境变量
-    echo -e "${YELLOW}设置编译环境变量，使用${MAX_JOBS}个编译线程...${NC}"
-    export MAX_JOBS="$MAX_JOBS"
-    
-    # 如果启用了NUMA优化
-    if [ $USE_NUMA -eq 1 ]; then
-        echo -e "${YELLOW}启用NUMA优化...${NC}"
-        export USE_NUMA=1
-    fi
-    
-    # 安装flash-attention
-    echo -e "${YELLOW}开始编译安装Flash Attention...${NC}"
-    if [ -n "$LOG_FILE" ]; then
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始从源码编译安装Flash Attention" >> "$LOG_FILE"
-    fi
-    
-    if pip install flash-attn --no-build-isolation; then
-        echo -e "${GREEN}✓ Flash Attention从源码安装成功${NC}"
+
+    if pip install "${flash_attn_url}"; then
+        log "SUCCESS" "Flash Attention预编译包安装成功"
         
-        # 验证安装
+
         if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-            echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
-            if [ -n "$LOG_FILE" ]; then
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] Flash Attention从源码安装成功并导入测试成功" >> "$LOG_FILE"
-            fi
-            # 恢复原始CUDA版本值
+            log "SUCCESS" "Flash Attention导入测试成功"
+
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
             return 0
         else
-            echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
-            if [ -n "$LOG_FILE" ]; then
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] Flash Attention安装成功但导入失败" >> "$LOG_FILE"
+            log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..."
+        fi
+    else
+        log "WARN" "预编译包安装失败，尝试从源码安装..."
+    fi
+    
+
+    log "INFO" "准备从源码安装Flash Attention..."
+    
+
+    log "INFO" "安装ninja构建工具..."
+    pip uninstall -y ninja && pip install ninja
+    
+
+    log "INFO" "设置编译环境变量，使用${MAX_JOBS}个编译线程..."
+    export MAX_JOBS="$MAX_JOBS"
+    
+
+    if [ $USE_NUMA -eq 1 ]; then
+        log "INFO" "启用NUMA优化..."
+        export USE_NUMA=1
+    fi
+    
+
+    log "INFO" "开始编译安装Flash Attention..."
+    
+
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+
+        log "INFO" "使用代理从源码安装Flash Attention..."
+        
+
+        local temp_dir=$(mktemp -d)
+        cd "$temp_dir" || {
+            log "ERROR" "无法创建临时目录"
+            return 1
+        }
+        
+
+        log "INFO" "克隆Flash Attention仓库..."
+        if git clone "${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention.git"; then
+            cd flash-attention || {
+                log "ERROR" "无法进入flash-attention目录"
+                return 1
+            }
+            
+
+            log "INFO" "从源码安装Flash Attention..."
+            if pip install -e .; then
+                log "SUCCESS" "Flash Attention从源码安装成功"
+                
+
+                if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+                    log "SUCCESS" "Flash Attention导入测试成功"
+
+                    FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+
+                    cd "$INSTALL_DIR"
+                    rm -rf "$temp_dir"
+                    return 0
+                else
+                    log "WARN" "Flash Attention安装成功但导入失败"
+
+                    FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+
+                    cd "$INSTALL_DIR"
+                    rm -rf "$temp_dir"
+                    return 1
+                fi
+            else
+                log "ERROR" "Flash Attention从源码安装失败"
+
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+
+                cd "$INSTALL_DIR"
+                rm -rf "$temp_dir"
+                return 1
             fi
-            # 恢复原始CUDA版本值
+        else
+            log "ERROR" "克隆Flash Attention仓库失败"
+
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+
+            cd "$INSTALL_DIR"
+            rm -rf "$temp_dir"
             return 1
         fi
     else
-        echo -e "${RED}[ERROR] Flash Attention从源码安装失败${NC}"
-        if [ -n "$LOG_FILE" ]; then
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] Flash Attention从源码安装失败" >> "$LOG_FILE"
+
+        if pip install flash-attn --no-build-isolation; then
+            log "SUCCESS" "Flash Attention从源码安装成功"
+            
+
+            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+                log "SUCCESS" "Flash Attention导入测试成功"
+
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+                return 0
+            else
+                log "WARN" "Flash Attention安装成功但导入失败"
+
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+                return 1
+            fi
+        else
+            log "ERROR" "Flash Attention从源码安装失败"
+
+            FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+            return 1
         fi
-        # 恢复原始CUDA版本值
-        FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+    fi
+}
+
+# 检查Git镜像站点
+check_best_github_site() {
+    log "INFO" "检查最佳GitHub镜像站点..."
+    
+
+    if [ -f "clone.sh" ]; then
+        log "INFO" "运行GitHub镜像站点测试..."
+
+        bash clone.sh >/dev/null 2>&1
+        
+
+        if [ -f "mirror_test/best_site.env" ]; then
+            source mirror_test/best_site.env
+            log "SUCCESS" "找到最佳GitHub镜像站点: $BEST_GITHUB_SITE"
+            
+
+            if [ "$IS_PROXY" = "1" ]; then
+                GITHUB_PREFIX="https://${BEST_GITHUB_SITE}/https://github.com/"
+                log "INFO" "使用代理镜像: $BEST_GITHUB_SITE"
+            else
+                GITHUB_PREFIX="https://${BEST_GITHUB_SITE}/"
+                log "INFO" "使用直连镜像: $BEST_GITHUB_SITE"
+            fi
+        else
+            log "WARN" "未找到GitHub镜像站点测试结果，使用默认站点"
+            GITHUB_PREFIX="https://github.com/"
+        fi
+    else
+        log "WARN" "未找到clone.sh脚本，使用默认GitHub站点"
+        GITHUB_PREFIX="https://github.com/"
+    fi
+}
+
+# 检测IP
+is_china_ip() {
+    log "INFO" "检测IP地理位置..."
+    
+
+    local ip_services=(
+        "https://api.myip.la/en?json"
+        "https://ipapi.co/json/"
+        "https://ip.useragentinfo.com/json"
+    )
+    
+    local is_china=0
+    local country_code=""
+    local ip_address=""
+    
+    for service in "${ip_services[@]}"; do
+        local result=$(curl -s --connect-timeout 5 "$service" 2>/dev/null)
+        
+
+        if [ -n "$result" ]; then
+
+            if echo "$result" | grep -qi "China\|CN"; then
+                is_china=1
+                country_code="CN"
+                ip_address=$(echo "$result" | grep -o '"ip":"[^"]*"' | head -1 | cut -d'"' -f4)
+                if [ -z "$ip_address" ]; then
+                    ip_address=$(echo "$result" | grep -o '"ip":[^,]*' | head -1 | cut -d':' -f2 | tr -d ' "')
+                fi
+                break
+            elif echo "$result" | grep -q "country_code\|countryCode"; then
+                country_code=$(echo "$result" | grep -o '"country_code":"[^"]*"' | cut -d'"' -f4)
+                if [ -z "$country_code" ]; then
+                    country_code=$(echo "$result" | grep -o '"countryCode":"[^"]*"' | cut -d'"' -f4)
+                fi
+                
+                ip_address=$(echo "$result" | grep -o '"ip":"[^"]*"' | head -1 | cut -d'"' -f4)
+                if [ -z "$ip_address" ]; then
+                    ip_address=$(echo "$result" | grep -o '"ip":[^,]*' | head -1 | cut -d':' -f2 | tr -d ' "')
+                fi
+                
+                if [ "$country_code" = "CN" ]; then
+                    is_china=1
+                    break
+                elif [ -n "$country_code" ]; then
+                    break
+                fi
+            fi
+        fi
+    done
+    
+
+    if [ -z "$country_code" ]; then
+        log "WARN" "无法通过API检测IP地理位置，尝试网络延迟测试..."
+        
+
+        local cn_site="baidu.com"
+        local global_site="google.com"
+        
+        local cn_time=$(ping -c 3 $cn_site 2>/dev/null | grep "avg" | awk -F'/' '{print $5}' || echo 999)
+        local global_time=$(ping -c 3 $global_site 2>/dev/null | grep "avg" | awk -F'/' '{print $5}' || echo 999)
+        
+        if [ $(echo "$cn_time < $global_time" | bc -l) -eq 1 ]; then
+            log "DEBUG" "国内网站延迟($cn_time ms)低于国际网站($global_time ms)，可能位于中国网络环境"
+            is_china=1
+        else
+            log "DEBUG" "国际网站延迟($global_time ms)低于国内网站($cn_time ms)，可能位于国际网络环境"
+            is_china=0
+        fi
+    fi
+    
+    if [ $is_china -eq 1 ]; then
+        log "INFO" "检测到中国IP地址: $ip_address"
+        return 0
+    else
+        log "INFO" "检测到非中国IP地址: $ip_address (国家代码: $country_code)"
         return 1
     fi
 }
@@ -2530,15 +2625,29 @@ main() {
     # 执行各个步骤
     check_root || exit 1
     install_git || exit 1
-    clone_repository || { echo -e "${RED}仓库克隆失败，无法继续安装${NC}"; exit 1; }
+    
+    # 安装conda和创建环境
     install_conda || { echo -e "${RED}Conda安装失败，无法继续安装${NC}"; exit 1; }
     create_conda_env || { echo -e "${RED}Conda环境创建失败，无法继续安装${NC}"; exit 1; }
+    
+    # 克隆仓库，添加更详细的错误处理
+    if ! clone_repository; then
+        log "ERROR" "仓库克隆失败，请检查网络连接和目录权限"
+        log "INFO" "您可以尝试手动克隆仓库:"
+        log "INFO" "  git clone https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR"
+        log "INFO" "或者使用ghfast.top代理:"
+        log "INFO" "  git clone https://ghfast.top/https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR"
+        exit 1
+    fi
     
     # 激活环境
     activate_conda_env || install_status=1
     
     # 初始化Git子模块
     init_git_submodules || install_status=1
+    
+    # 更新Git子模块
+    update_git_submodules_with_progress || install_status=1
     
     # 安装libnuma和设置环境变量
     install_libnuma || install_status=1
@@ -2548,11 +2657,11 @@ main() {
     install_pytorch || install_status=1
     
     # 先安装flash_attn
-    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}"
+    echo -e "${BLUE}[步骤 10] 安装Flash Attention${NC}"
     install_flash_attn || install_status=1
     
     # 安装flashinfer
-    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}"
+    echo -e "${BLUE}[步骤 11] 安装FlashInfer${NC}"
     download_flashinfer || install_status=1
     
     # 编译安装KTransformers
@@ -2565,101 +2674,19 @@ main() {
     # 检查安装的版本
     check_versions
     
-    # 创建安装报告
-    echo -e "\n${BLUE}===== KTransformers 安装报告 =====${NC}"
-    echo -e "安装目录: ${GREEN}$INSTALL_DIR${NC}"
-    echo -e "Conda环境: ${GREEN}$ENV_NAME${NC}"
-    echo -e "Git镜像站点: ${GREEN}$BEST_GITHUB_SITE${NC}"
-    
-    # 显示CUDA和PyTorch版本信息
-    if [ -n "$TORCH_VERSION" ]; then
-        echo -e "PyTorch版本: ${GREEN}$TORCH_VERSION${NC}"
-    else
-        echo -e "PyTorch版本: ${YELLOW}未检测到${NC}"
-    fi
-    
-    if [ -n "$CUDA_VERSION" ]; then
-        echo -e "CUDA版本: ${GREEN}$CUDA_VERSION${NC}"
-    else
-        echo -e "CUDA版本: ${YELLOW}未检测到${NC}"
-    fi
-    
-    # 检查是否有Flashinfer
-    if python -c "import flashinfer" &>/dev/null; then
-        local flashinfer_version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
-        echo -e "Flashinfer版本: ${GREEN}${flashinfer_version:-已安装}${NC}"
-    else
-        echo -e "Flashinfer版本: ${RED}未安装或无法导入${NC}"
-    fi
-    
-    if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "调试日志: ${GREEN}$LOG_FILE${NC}"
-        if [ -f "$INSTALL_DIR/make_error.log" ]; then
-            echo -e "编译日志: ${GREEN}$INSTALL_DIR/make_error.log${NC}"
-        fi
-    fi
-    
+    # 安装完成
     if [ $install_status -eq 0 ]; then
-        echo -e "${GREEN}✓ 所有组件安装成功${NC}"
-        echo -e "${GREEN}===== KTransformers 安装完成! =====${NC}"
+        log "SUCCESS" "安装完成！"
+        log "INFO" "现在你可以使用 ktransformers 了！"
+        log "INFO" "启动命令: cd $INSTALL_DIR && conda activate $ENV_NAME && python -m ktransformers"
     else
-        echo -e "${YELLOW}⚠ 部分组件安装失败或可能不完整${NC}"
-        echo -e "${YELLOW}===== KTransformers 安装基本完成，但有部分组件可能需要手动处理 =====${NC}"
-    fi
-    
-    echo -e "\n${YELLOW}要使用KTransformers，请运行:${NC}"
-    echo -e "${BLUE}source $(pwd)/activate_env.sh${NC}"
-    echo -e "${YELLOW}注意：首次使用可能需要重新打开终端或执行 source ~/.bashrc${NC}"
-    
-    if [ $install_status -ne 0 ]; then
-        echo -e "\n${YELLOW}▶ 可能需要手动处理的问题:${NC}"
-        if ! command_exists make; then
-            echo -e "${YELLOW}  - 安装make: ${NC}apt-get install -y build-essential"
-        fi
-        if ! python -c "import flashinfer" &>/dev/null; then
-            echo -e "${YELLOW}  - 安装flashinfer: ${NC}pip install flashinfer-python -f https://flashinfer.ai/whl/${FORMATTED_CUDA_VERSION}/${FORMATTED_TORCH_VERSION}"
-            echo -e "${YELLOW}    或从源码安装: ${NC}git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && cd flashinfer && pip install -e . -v"
-        fi
-        if ! python -c "import flash_attn" &>/dev/null; then
-            local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null || echo "cp310")
-            echo -e "${YELLOW}  - 安装Flash Attention: ${NC}pip install flash-attn --no-build-isolation"
-            echo -e "${YELLOW}    或尝试预编译包: ${NC}pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
-        fi
-        if ! python -c "import torch" &>/dev/null; then
-            echo -e "${YELLOW}  - 安装PyTorch: ${NC}pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/${FORMATTED_CUDA_VERSION}"
-        fi
-    fi
-    
-    # 在调试模式下添加额外的总结信息
-    if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "\n${CYAN}[调试] 安装过程总结:${NC}"
-        echo -e "${CYAN}[调试] - 安装脚本执行时间: $(date)${NC}"
-        echo -e "${CYAN}[调试] - 详细日志已保存到: $LOG_FILE${NC}"
-        
-        # 显示环境变量信息
-        echo -e "${CYAN}[调试] - PATH环境变量:${NC}"
-        echo -e "${CYAN}  $PATH${NC}" | tr ':' '\n' | sed 's/^/  /'
-        
-        if command_exists nvcc; then
-            echo -e "${CYAN}[调试] - NVCC路径: $(which nvcc)${NC}"
-            echo -e "${CYAN}[调试] - NVCC版本:${NC}"
-            nvcc -V | sed 's/^/  /'
-        else
-            echo -e "${CYAN}[调试] - NVCC未找到${NC}"
-        fi
-        
-        # 检查GPU是否可用
-        if python -c "import torch; print('CUDA可用:' if torch.cuda.is_available() else 'CUDA不可用:')" 2>/dev/null; then
-            echo -e "${CYAN}[调试] - $(python -c "import torch; print('CUDA可用' if torch.cuda.is_available() else 'CUDA不可用')")${NC}"
-            if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" &>/dev/null; then
-                echo -e "${CYAN}[调试] - 可用GPU: $(python -c "import torch; print(torch.cuda.get_device_name(0))" 2>/dev/null)${NC}"
-            fi
-        fi
-        
-        echo -e "${CYAN}[调试] - 如遇问题，请查看日志文件获取详细信息${NC}"
+        log "WARN" "安装过程中有部分步骤失败，请查看详细日志"
+        log "INFO" "你可以尝试修复问题后重新运行脚本"
     fi
 }
 
 # 运行主函数
 main "$@"
+
+
 
