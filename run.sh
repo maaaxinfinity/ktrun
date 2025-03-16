@@ -59,7 +59,16 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
-NC='\033[0m' # 无颜色
+NC='\033[0m' # No Color
+
+# 显示KTransformers安装脚本的LOGO
+echo -e "${BLUE}"
+echo "   __ ____                    ___                         "
+echo "  / //_/ /________ ____  ___ / _/__  ______ _  ___ _______"
+echo " / ,< / __/ __/ _ \`/ _ \(_-</ _/ _ \/ __/  ' \/ -_) __(_-<"
+echo "/_/|_|\__/_/  \_,_/_//_/___/_/ \___/_/ /_/_/_/\__/_/ /___/"
+echo " +------------------------------------------------------+"
+echo -e "${NC}"
 
 # 全局变量
 BEST_GITHUB_SITE=""
@@ -68,6 +77,97 @@ INSTALL_DIR=""
 ENV_NAME=""
 DEBUG_MODE=0
 LOG_FILE=""
+USE_NUMA=0
+CUSTOM_PATH=""
+MAX_JOBS=$(nproc)
+
+# 用户配置部分
+configure_installation() {
+    echo -e "${BLUE}=== KTransformers 安装配置 ===${NC}"
+    
+    # 询问安装路径
+    echo -e "${YELLOW}请输入安装路径 (默认: $HOME/ktransformers):${NC}"
+    read -r user_install_dir
+    if [ -z "$user_install_dir" ]; then
+        INSTALL_DIR="$HOME/ktransformers"
+    else
+        INSTALL_DIR="$user_install_dir"
+    fi
+    echo -e "${GREEN}✓ 安装路径设置为: ${INSTALL_DIR}${NC}"
+    
+    # 询问环境名称
+    echo -e "${YELLOW}请输入Conda环境名称 (默认: ktransformers):${NC}"
+    read -r user_env_name
+    if [ -z "$user_env_name" ]; then
+        ENV_NAME="ktransformers"
+    else
+        ENV_NAME="$user_env_name"
+    fi
+    echo -e "${GREEN}✓ Conda环境名称设置为: ${ENV_NAME}${NC}"
+    
+    # 询问是否启用NUMA
+    echo -e "${YELLOW}是否启用NUMA优化? [y/N]:${NC}"
+    read -r use_numa_option
+    if [[ "$use_numa_option" =~ ^[Yy]$ ]]; then
+        USE_NUMA=1
+        echo -e "${GREEN}✓ 已启用NUMA优化${NC}"
+    else
+        echo -e "${BLUE}未启用NUMA优化${NC}"
+    fi
+    
+    # 询问是否设置自定义PATH
+    echo -e "${YELLOW}是否需要设置自定义PATH? [y/N]:${NC}"
+    read -r custom_path_option
+    if [[ "$custom_path_option" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}请输入自定义PATH (当前PATH: $PATH):${NC}"
+        read -r user_custom_path
+        if [ -n "$user_custom_path" ]; then
+            CUSTOM_PATH="$user_custom_path"
+            export PATH="$CUSTOM_PATH:$PATH"
+            echo -e "${GREEN}✓ 已添加自定义PATH: ${CUSTOM_PATH}${NC}"
+        fi
+    fi
+    
+    # 询问编译线程数
+    echo -e "${YELLOW}请输入编译最大线程数 (默认: $(nproc), 系统检测到$(nproc)个核心):${NC}"
+    read -r user_max_jobs
+    if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
+        MAX_JOBS="$user_max_jobs"
+    fi
+    echo -e "${GREEN}✓ 编译最大线程数设置为: ${MAX_JOBS}${NC}"
+    
+    # 询问是否启用调试模式
+    echo -e "${YELLOW}是否启用调试模式? [y/N]:${NC}"
+    read -r debug_option
+    if [[ "$debug_option" =~ ^[Yy]$ ]]; then
+        DEBUG_MODE=1
+        echo -e "${GREEN}✓ 已启用调试模式${NC}"
+    else
+        echo -e "${BLUE}未启用调试模式${NC}"
+    fi
+    
+    # 显示配置摘要
+    echo -e "\n${BLUE}=== 安装配置摘要 ===${NC}"
+    echo -e "${BLUE}安装路径: ${NC}${INSTALL_DIR}"
+    echo -e "${BLUE}Conda环境: ${NC}${ENV_NAME}"
+    echo -e "${BLUE}NUMA优化: ${NC}$([ $USE_NUMA -eq 1 ] && echo "启用" || echo "禁用")"
+    if [ -n "$CUSTOM_PATH" ]; then
+        echo -e "${BLUE}自定义PATH: ${NC}${CUSTOM_PATH}"
+    fi
+    echo -e "${BLUE}编译线程数: ${NC}${MAX_JOBS}"
+    echo -e "${BLUE}调试模式: ${NC}$([ $DEBUG_MODE -eq 1 ] && echo "启用" || echo "禁用")"
+    
+    # 确认配置
+    echo -e "\n${YELLOW}确认以上配置并开始安装? [Y/n]:${NC}"
+    read -r confirm
+    if [[ "$confirm" =~ ^[Nn]$ ]]; then
+        echo -e "${RED}安装已取消${NC}"
+        exit 0
+    fi
+    
+    echo -e "${GREEN}✓ 配置确认，开始安装...${NC}"
+    echo
+}
 
 # 日志记录函数
 log() {
@@ -1725,32 +1825,66 @@ install_libstdcxx_ng() {
 
 # 14. 检测版本信息
 check_versions() {
-    echo -e "${BLUE}[步骤 14] 检测版本信息${NC}"
+    echo -e "\n${BLUE}===== 检查安装的组件版本 =====${NC}"
     
-    # 确保在仓库目录中
-    if [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${RED}× 目录 $INSTALL_DIR 不存在${NC}"
-        return 1
+    # 检查Python版本
+    local python_version=$(python --version 2>&1)
+    echo -e "Python版本: ${GREEN}${python_version}${NC}"
+    
+    # 检查是否有PyTorch
+    if python -c "import torch" &>/dev/null; then
+        local torch_version=$(python -c "import torch; print(torch.__version__)" 2>/dev/null)
+        echo -e "PyTorch版本: ${GREEN}${torch_version}${NC}"
+        
+        # 检查CUDA是否可用
+        if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" &>/dev/null; then
+            echo -e "CUDA可用: ${GREEN}是${NC}"
+            echo -e "CUDA版本: ${GREEN}$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)${NC}"
+            echo -e "GPU型号: ${GREEN}$(python -c "import torch; print(torch.cuda.get_device_name(0))" 2>/dev/null)${NC}"
+        else
+            echo -e "CUDA可用: ${RED}否${NC}"
+        fi
+    else
+        echo -e "PyTorch版本: ${RED}未安装或无法导入${NC}"
     fi
     
-    cd "$INSTALL_DIR" || {
-        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
-        return 1
-    }
+    # 检查是否有KTransformers
+    if python -c "import ktransformers" &>/dev/null; then
+        local kt_version=$(python -c "import ktransformers; print(ktransformers.__version__)" 2>/dev/null)
+        echo -e "KTransformers版本: ${GREEN}${kt_version:-已安装}${NC}"
+    else
+        echo -e "KTransformers版本: ${RED}未安装或无法导入${NC}"
+    fi
     
-    echo -e "${YELLOW}检测ktransformers版本...${NC}"
-    python -c "import ktransformers; print('ktransformers版本:', ktransformers.__version__)" || echo "无法获取ktransformers版本"
+    # 检查是否有Flashinfer
+    if python -c "import flashinfer" &>/dev/null; then
+        local flashinfer_version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
+        echo -e "Flashinfer版本: ${GREEN}${flashinfer_version:-已安装}${NC}"
+    else
+        echo -e "Flashinfer版本: ${RED}未安装或无法导入${NC}"
+    fi
     
-    echo -e "${YELLOW}检测flashinfer版本...${NC}"
-    python -c "import flashinfer; print('flashinfer版本:', flashinfer.__version__)" || echo "无法获取flashinfer版本"
+    # 检查是否有Flash Attention
+    if python -c "import flash_attn" &>/dev/null; then
+        local flash_attn_version=$(python -c "import flash_attn; print(flash_attn.__version__)" 2>/dev/null)
+        echo -e "Flash Attention版本: ${GREEN}${flash_attn_version:-已安装}${NC}"
+    else
+        echo -e "Flash Attention版本: ${RED}未安装或无法导入${NC}"
+    fi
     
-    echo -e "${YELLOW}检测CUDA版本...${NC}"
-    nvcc --version || echo "无法获取CUDA版本"
+    # 检查NUMA设置
+    if [ $USE_NUMA -eq 1 ]; then
+        echo -e "NUMA优化: ${GREEN}已启用${NC}"
+    else
+        echo -e "NUMA优化: ${YELLOW}未启用${NC}"
+    fi
     
-    echo -e "${YELLOW}检测PyTorch版本及CUDA是否可用...${NC}"
-    python -c "import torch; print('PyTorch版本:', torch.__version__); print('CUDA是否可用:', torch.cuda.is_available()); print('CUDA版本:', torch.version.cuda if torch.cuda.is_available() else 'N/A')" || echo "无法获取PyTorch信息"
+    # 检查编译线程数
+    echo -e "编译线程数: ${GREEN}${MAX_JOBS}${NC}"
     
-    echo -e "${GREEN}✓ 版本信息检测完成${NC}"
+    if [ -n "$CUDA_VERSION" ]; then
+        echo -e "CUDA版本: ${GREEN}$CUDA_VERSION${NC}"
+    fi
 }
 
 # 5. 激活环境并进入仓库 - 增强版，添加修复功能
@@ -1963,12 +2097,111 @@ update_git_submodules_with_progress() {
     fi
 }
 
+# 安装flash_attn
+install_flash_attn() {
+    echo -e "${BLUE}[步骤 9.5] 安装Flash Attention${NC}"
+    
+    # 确保已检测到PyTorch和CUDA版本
+    if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
+        echo -e "${YELLOW}CUDA或PyTorch版本信息缺失，尝试重新检测...${NC}"
+        
+        # 验证PyTorch安装和CUDA可用性
+        local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
+        if [ -n "$torch_version" ]; then
+            TORCH_VERSION="$torch_version"
+            FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d. -f1,2 | sed 's/\.//')"
+            
+            # 检测CUDA版本
+            local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
+            if [ -n "$cuda_torch_version" ]; then
+                CUDA_VERSION="$cuda_torch_version"
+                FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
+                echo -e "${GREEN}✓ 从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})${NC}"
+            fi
+        else
+            echo -e "${RED}× 无法检测到PyTorch版本，请确保PyTorch已正确安装${NC}"
+            return 1
+        fi
+    fi
+    
+    # 获取Python版本
+    local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
+    if [ -z "$python_version" ]; then
+        echo -e "${RED}× 无法检测到Python版本${NC}"
+        return 1
+    fi
+    
+    echo -e "${YELLOW}检测到环境信息:${NC}"
+    echo -e "${YELLOW}- CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})${NC}"
+    echo -e "${YELLOW}- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})${NC}"
+    echo -e "${YELLOW}- Python版本: ${python_version}${NC}"
+    
+    # 尝试安装预编译的flash-attention
+    echo -e "${YELLOW}尝试安装预编译的Flash Attention...${NC}"
+    
+    # 构建预编译包URL
+    local flash_attn_version="2.7.4.post1"
+    local flash_attn_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
+    
+    echo -e "${YELLOW}尝试下载: ${flash_attn_url}${NC}"
+    
+    # 尝试安装预编译包
+    if pip install "${flash_attn_url}"; then
+        echo -e "${GREEN}✓ Flash Attention预编译包安装成功${NC}"
+        
+        # 验证安装
+        if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+            echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}Flash Attention安装成功但导入失败，尝试从源码安装...${NC}"
+        fi
+    else
+        echo -e "${YELLOW}预编译包安装失败，尝试从源码安装...${NC}"
+    fi
+    
+    # 从源码安装
+    echo -e "${YELLOW}准备从源码安装Flash Attention...${NC}"
+    
+    # 安装ninja
+    echo -e "${YELLOW}安装ninja构建工具...${NC}"
+    pip uninstall -y ninja && pip install ninja
+    
+    # 设置编译环境变量
+    echo -e "${YELLOW}设置编译环境变量，使用${MAX_JOBS}个编译线程...${NC}"
+    export MAX_JOBS="$MAX_JOBS"
+    
+    # 如果启用了NUMA优化
+    if [ $USE_NUMA -eq 1 ]; then
+        echo -e "${YELLOW}启用NUMA优化...${NC}"
+        export USE_NUMA=1
+    fi
+    
+    # 安装flash-attention
+    echo -e "${YELLOW}开始编译安装Flash Attention...${NC}"
+    if pip install flash-attn --no-build-isolation; then
+        echo -e "${GREEN}✓ Flash Attention从源码安装成功${NC}"
+        
+        # 验证安装
+        if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+            echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
+            return 1
+        fi
+    else
+        echo -e "${RED}× Flash Attention从源码安装失败${NC}"
+        return 1
+    fi
+}
+
 # 主函数
 main() {
     echo -e "${BLUE}===== KTransformers 安装脚本 =====${NC}"
     
-    # 提示调试模式
-    prompt_debug_mode
+    # 用户配置安装选项
+    configure_installation
     
     # 设置日志文件
     setup_log_file
@@ -2027,6 +2260,9 @@ main() {
     update_libstdcpp6 || install_status=1
     install_libstdcxx_ng || install_status=1
     
+    # 安装flash_attn
+    install_flash_attn || install_status=1
+    
     # 检查安装的版本
     check_versions
     
@@ -2084,6 +2320,11 @@ main() {
         if ! python -c "import flashinfer" &>/dev/null; then
             echo -e "${YELLOW}  - 安装flashinfer: ${NC}pip install flashinfer-python -f https://flashinfer.ai/whl/${FORMATTED_CUDA_VERSION}/${FORMATTED_TORCH_VERSION}"
             echo -e "${YELLOW}    或从源码安装: ${NC}git clone https://github.com/flashinfer-ai/flashinfer.git --recursive && cd flashinfer && pip install -e . -v"
+        fi
+        if ! python -c "import flash_attn" &>/dev/null; then
+            local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null || echo "cp310")
+            echo -e "${YELLOW}  - 安装Flash Attention: ${NC}pip install flash-attn --no-build-isolation"
+            echo -e "${YELLOW}    或尝试预编译包: ${NC}pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
         fi
         if ! python -c "import torch" &>/dev/null; then
             echo -e "${YELLOW}  - 安装PyTorch: ${NC}pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/${FORMATTED_CUDA_VERSION}"

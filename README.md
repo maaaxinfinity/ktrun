@@ -9,7 +9,7 @@
 
 ## 📋 简介
 
-KTransformers 是一个高性能的 Transformer 模型加速框架，专为 GPU 环境优化设计。本安装脚本提供了自动化的安装流程，帮助您快速部署 KTransformers 环境，包括所有必要的依赖项和配置。
+KTransformers 是一个高性能的 Transformer 模型加速框架，专为混合推理优化设计。本安装脚本提供了自动化的安装流程，帮助您快速部署 KTransformers 环境，包括所有必要的依赖项和配置。
 
 ## ✨ 功能特点
 
