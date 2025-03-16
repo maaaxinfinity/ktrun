@@ -1,4 +1,4 @@
-﻿# KTransformers 安装指南
+﻿# KTransformers 一键部署脚本
 
 <div align="center">
   <img src="https://img.shields.io/badge/CUDA-支持-brightgreen" alt="CUDA支持">
