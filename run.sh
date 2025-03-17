@@ -2604,11 +2604,11 @@ main() {
     echo -e "${PURPLE}KTransformers 安装脚本 - 调试增强版${NC}"
     echo -e "${PURPLE}当前时间: $(date)${NC}\n"
     
-    # 测试GitHub连通性
-    test_github_connectivity
-    
     # 检查并安装必要的工具
     check_required_tools
+    
+    # 测试GitHub连通性
+    test_github_connectivity
     
     # 检查并设置pip源
     check_and_set_pip_mirror
