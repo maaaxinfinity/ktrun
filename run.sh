@@ -1429,57 +1429,90 @@ install_pytorch() {
     
     echo -e "${YELLOW}开始安装PyTorch GPU版本 (CUDA ${CUDA_VERSION})...${NC}"
     
-
-    local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
-    local cuda_formatted="cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
-    
-
-    local pip_torch_cmd=""
-    local torch_mirror=""
-    
-
-    local current_pip_index=$(pip config list | grep -o "index-url=.*" | cut -d= -f2 | tr -d "'")
-    
-    if [[ "$current_pip_index" == *"mirrors.ustc.edu.cn"* ]]; then
-        echo -e "${YELLOW}检测到已配置中科大镜像源，将继续使用${NC}"
-        torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
-    elif [[ "$current_pip_index" == *"mirrors.tuna.tsinghua.edu.cn"* ]]; then
-        echo -e "${YELLOW}检测到已配置清华镜像源，将继续使用${NC}"
-        torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
-    elif ping -c 1 mirrors.ustc.edu.cn &>/dev/null; then
-        torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
-        echo -e "${YELLOW}检测到国内网络环境，使用中科大镜像源${NC}"
-    elif ping -c 1 mirrors.tuna.tsinghua.edu.cn &>/dev/null; then
-        torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
-        echo -e "${YELLOW}检测到国内网络环境，使用清华镜像源${NC}"
-    else
-        torch_mirror="https://download.pytorch.org/whl"
+    # 对CUDA 12.6和12.8版本使用预编译的wheel包
+    if [[ "$CUDA_VERSION" == "12.6" || "$CUDA_VERSION" == "12.8" ]]; then
+        echo -e "${YELLOW}检测到CUDA ${CUDA_VERSION}版本，将使用预编译wheel包安装PyTorch...${NC}"
+        
+        local torch_wheel_url=""
+        if [[ "$CUDA_VERSION" == "12.6" ]]; then
+            torch_wheel_url="https://github.com/maaaxinfinity/ktrun/releases/download/v0.0.317/torch-2.8.0.dev20250317+cu126-cp312-cp312-manylinux_2_28_x86_64.whl"
+        elif [[ "$CUDA_VERSION" == "12.8" ]]; then
+            torch_wheel_url="https://github.com/maaaxinfinity/ktrun/releases/download/v0.0.317/torch-2.8.0.dev20250317+cu128-cp312-cp312-manylinux_2_28_x86_64.whl"
+        fi
+        
+        # 检查是否需要使用代理
+        if [ $USE_GHPROXY -eq 1 ]; then
+            local original_url="$torch_wheel_url"
+            torch_wheel_url="${GHPROXY_URL}/${torch_wheel_url}"
+            echo -e "${YELLOW}使用代理加速下载: ${torch_wheel_url}${NC}"
+        fi
+        
+        echo -e "${CYAN}[命令] pip install ${torch_wheel_url}${NC}"
+        if pip install "$torch_wheel_url"; then
+            echo -e "${GREEN}✓ PyTorch预编译wheel包安装成功${NC}"
+            install_success=true
+            # 标记使用了预编译PyTorch，后续步骤不能使用预编译
+            USED_PRECOMPILED_PYTORCH=1
+            export USED_PRECOMPILED_PYTORCH
+            echo -e "${YELLOW}注意: 已使用预编译PyTorch，后续步骤将直接编译而不使用预编译包${NC}"
+        else
+            echo -e "${RED}× 预编译PyTorch安装失败，尝试常规安装方式...${NC}"
+        fi
     fi
     
-
-    pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
-    
-
-    echo -e "${CYAN}[命令] ${pip_torch_cmd}${NC}"
-    if eval "$pip_torch_cmd"; then
-        echo -e "${GREEN}✓ PyTorch通过pip安装成功${NC}"
-        install_success=true
-    else
-        echo -e "${YELLOW}通过pip安装PyTorch失败，尝试通过conda安装...${NC}"
+    # 如果预编译wheel安装失败或者不是特殊版本CUDA，则使用常规安装方式
+    if [ "$install_success" != true ]; then
+        local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
+        local cuda_formatted="cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
         
 
-        if command_exists conda; then
-            echo -e "${CYAN}[命令] conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia${NC}"
-            if conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia; then
-                echo -e "${GREEN}✓ PyTorch通过conda安装成功${NC}"
-                install_success=true
+        local pip_torch_cmd=""
+        local torch_mirror=""
+        
+
+        local current_pip_index=$(pip config list | grep -o "index-url=.*" | cut -d= -f2 | tr -d "'")
+        
+        if [[ "$current_pip_index" == *"mirrors.ustc.edu.cn"* ]]; then
+            echo -e "${YELLOW}检测到已配置中科大镜像源，将继续使用${NC}"
+            torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
+        elif [[ "$current_pip_index" == *"mirrors.tuna.tsinghua.edu.cn"* ]]; then
+            echo -e "${YELLOW}检测到已配置清华镜像源，将继续使用${NC}"
+            torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
+        elif ping -c 1 mirrors.ustc.edu.cn &>/dev/null; then
+            torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
+            echo -e "${YELLOW}检测到国内网络环境，使用中科大镜像源${NC}"
+        elif ping -c 1 mirrors.tuna.tsinghua.edu.cn &>/dev/null; then
+            torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
+            echo -e "${YELLOW}检测到国内网络环境，使用清华镜像源${NC}"
+        else
+            torch_mirror="https://download.pytorch.org/whl"
+        fi
+        
+
+        pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
+        
+
+        echo -e "${CYAN}[命令] ${pip_torch_cmd}${NC}"
+        if eval "$pip_torch_cmd"; then
+            echo -e "${GREEN}✓ PyTorch通过pip安装成功${NC}"
+            install_success=true
+        else
+            echo -e "${YELLOW}通过pip安装PyTorch失败，尝试通过conda安装...${NC}"
+            
+
+            if command_exists conda; then
+                echo -e "${CYAN}[命令] conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia${NC}"
+                if conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia; then
+                    echo -e "${GREEN}✓ PyTorch通过conda安装成功${NC}"
+                    install_success=true
+                else
+                    echo -e "${RED}× PyTorch安装失败${NC}"
+                    return 1
+                fi
             else
-                echo -e "${RED}× PyTorch安装失败${NC}"
+                echo -e "${RED}× conda不可用，PyTorch安装失败${NC}"
                 return 1
             fi
-        else
-            echo -e "${RED}× conda不可用，PyTorch安装失败${NC}"
-            return 1
         fi
     fi
     
@@ -1625,7 +1658,15 @@ set_use_numa() {
 download_flashinfer() {
     echo -e "${BLUE}[INFO] 安装flashinfer${NC}"
     
-
+    # 如果使用了预编译的PyTorch，直接从源码安装flashinfer
+    if [ "${USED_PRECOMPILED_PYTORCH:-0}" -eq 1 ]; then
+        echo -e "${YELLOW}检测到使用了预编译的PyTorch (CUDA ${CUDA_VERSION})，将直接从源码编译安装flashinfer...${NC}"
+        
+        # 直接调用从源码安装flashinfer的部分
+        install_flashinfer_from_source
+        return $?
+    fi
+    
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
         echo -e "${YELLOW}CUDA或PyTorch版本信息缺失，尝试重新检测...${NC}"
         
@@ -1801,6 +1842,55 @@ download_flashinfer() {
 
     FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
     return 1
+}
+
+# 从源码安装flashinfer函数
+install_flashinfer_from_source() {
+    echo -e "${YELLOW}从源代码安装flashinfer...${NC}"
+    
+    local temp_dir="/tmp/flashinfer_build_$$"
+    mkdir -p "$temp_dir"
+    cd "$temp_dir" || return 1
+    
+    echo -e "${YELLOW}克隆flashinfer仓库...${NC}"
+    
+    local repo_url
+    if [ -n "$BEST_GITHUB_SITE" ]; then
+        repo_url="https://${BEST_GITHUB_SITE}/flashinfer-ai/flashinfer.git"
+    else
+        repo_url="https://github.com/flashinfer-ai/flashinfer.git"
+    fi
+    
+    if git clone --depth=1 "$repo_url"; then
+        cd flashinfer || return 1
+        echo -e "${YELLOW}开始编译安装flashinfer...${NC}"
+        
+        pip install cmake
+        pip install -e .
+        
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ flashinfer从源码安装成功${NC}"
+            
+            if python -c "import flashinfer" &>/dev/null; then
+                local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
+                echo -e "${GREEN}✓ flashinfer导入测试成功，版本: ${version:-未知}${NC}"
+                
+                # 清理临时目录
+                cd
+                rm -rf "$temp_dir"
+                return 0
+            else
+                echo -e "${YELLOW}flashinfer安装成功但导入失败${NC}"
+                return 1
+            fi
+        else
+            echo -e "${RED}[ERROR] flashinfer从源码安装失败${NC}"
+            return 1
+        fi
+    else
+        echo -e "${RED}[ERROR] 克隆flashinfer仓库失败${NC}"
+        return 1
+    fi
 }
 
 # 11. 执行make dev_install
@@ -2327,42 +2417,47 @@ install_flash_attn() {
     log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})"
     log "INFO" "- Python版本: ${python_version}"
     
-
-    log "INFO" "尝试安装预编译的Flash Attention..."
-    
-
-    local flash_attn_version="2.7.4.post1"
-    local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
-    local package_name="flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
-    
-
-    local flash_attn_url
-    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-
-        flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
-        log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}"
+    # 检查是否使用了预编译的PyTorch
+    if [ "${USED_PRECOMPILED_PYTORCH:-0}" -eq 1 ]; then
+        log "INFO" "检测到使用了预编译的PyTorch (CUDA ${CUDA_VERSION})，将直接从源码安装Flash Attention..."
+        # 跳过预编译包安装
     else
-        flash_attn_url="${base_url}/${package_name}"
-        log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}"
-    fi
-    
-    log "INFO" "尝试下载: ${flash_attn_url}"
-    
-
-    if pip install "${flash_attn_url}"; then
-        log "SUCCESS" "Flash Attention预编译包安装成功"
+        log "INFO" "尝试安装预编译的Flash Attention..."
         
 
-        if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-            log "SUCCESS" "Flash Attention导入测试成功"
+        local flash_attn_version="2.7.4.post1"
+        local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
+        local package_name="flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
+        
 
-            FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-            return 0
+        local flash_attn_url
+        if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+
+            flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
+            log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}"
         else
-            log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..."
+            flash_attn_url="${base_url}/${package_name}"
+            log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}"
         fi
-    else
-        log "WARN" "预编译包安装失败，尝试从源码安装..."
+        
+        log "INFO" "尝试下载: ${flash_attn_url}"
+        
+
+        if pip install "${flash_attn_url}"; then
+            log "SUCCESS" "Flash Attention预编译包安装成功"
+            
+
+            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+                log "SUCCESS" "Flash Attention导入测试成功"
+
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+                return 0
+            else
+                log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..."
+            fi
+        else
+            log "WARN" "预编译包安装失败，尝试从源码安装..."
+        fi
     fi
     
 
