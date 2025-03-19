@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # 脚本版本信息
-# 最后更新: 2025-03-16
-# 版本: 1.0.1
+# 最后更新: 2025-03-20
+# 版本: 1.1.0
 # 作者: Limitee
 
 # =====================================================
@@ -129,31 +129,142 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # 全局变量
-BEST_GITHUB_SITE=""
-REPO_URL=""
-INSTALL_DIR="$(pwd)/workspace"  # 默认安装目录为当前目录
-ENV_NAME="ktrans_main"  # 默认环境名称
-DEBUG_MODE=0
-GIT_DEBUG_MODE=0  # 控制git详细日志输出，默认禁用
-LOG_FILE=""
-USE_NUMA=0  # 默认禁用USE_NUMA环境变量
-CUSTOM_PATH=""
-MAX_JOBS=$(nproc)
-FAST_MODE=0  # 默认禁用快速模式，允许用户修改配置
-USE_GHPROXY=0  # 默认禁用ghproxy，通过IP检测自动判断
-GHPROXY_URL=""  # ghproxy服务器URL
-IS_PROXY_SITE=0  # 是否使用代理站点
+#--------------------
+# 安装配置
+INSTALL_DIR="$(pwd)/workspace"  # 安装目录
+ENV_NAME="ktrans_main"          # Conda环境名称
+MAX_JOBS=$(nproc)               # 编译使用的最大线程数
+USE_NUMA=0                      # 是否启用NUMA环境变量
+
+# 网络与代理配置
+USE_GHPROXY=0                   # 是否使用国内代理加速
+GHPROXY_URL="https://ghfast.top" # 默认代理服务器URL
+
+# 运行模式设置
+DEBUG_MODE=0                    # 调试模式开关
+GIT_DEBUG_MODE=0                # Git详细日志开关
+FAST_MODE=0                     # 快速安装模式开关
+
+# 内部使用变量
+LOG_FILE=""                     # 日志文件路径
+CUSTOM_PATH=""                  # 自定义PATH
+
+# 添加单选框交互函数
+show_selection_menu() {
+    local title="$1"
+    local opt1="$2"
+    local opt2="$3"
+    local default_opt="$4"
+    
+    local selected=""
+    local opt1_status="○"
+    local opt2_status="○"
+    
+    # 设置默认选项
+    if [ "$default_opt" = "1" ]; then
+        opt1_status="\033[1;32m●\033[0m"  # 绿色高亮
+        selected="1"
+    else
+        opt2_status="\033[1;32m●\033[0m"  # 绿色高亮
+        selected="2"
+    fi
+    
+    while true; do
+        echo -e "\n╭─ ${title}"
+        echo -e "│"
+        echo -e "╰─ ${opt1_status} ${opt1} / ${opt2_status} ${opt2}"
+        echo -e ""
+        read -p "请输入选项 [1/2] 或按左右方向键选择: " -n 1 choice
+        
+        # 捕获特殊按键（方向键）
+        if [[ "$choice" == $'\e' ]]; then
+            read -t 0.1 -n 2 rest
+            if [[ "$rest" == "[C" ]]; then  # 右方向键
+                if [ "$selected" = "1" ]; then
+                    selected="2"
+                    opt1_status="○"
+                    opt2_status="\033[1;32m●\033[0m"  # 绿色高亮
+                fi
+                echo -e "\r\033[K"  # 清除当前行
+                continue
+            elif [[ "$rest" == "[D" ]]; then  # 左方向键
+                if [ "$selected" = "2" ]; then
+                    selected="1"
+                    opt1_status="\033[1;32m●\033[0m"  # 绿色高亮
+                    opt2_status="○"
+                fi
+                echo -e "\r\033[K"  # 清除当前行
+                continue
+            fi
+        fi
+        
+        # 回车键处理
+        if [[ "$choice" == "" ]]; then
+            echo ""
+            return $selected
+        fi
+        
+        # 数字选择处理
+        case "$choice" in
+            1)
+                echo ""
+                return 1
+                ;;
+            2)
+                echo ""
+                return 2
+                ;;
+            *)
+                echo -e "\r\033[K${YELLOW}请输入有效的选项: 1, 2, 或使用方向键${NC}"
+                ;;
+        esac
+    done
+}
+
+# 添加路径选择函数
+select_or_input_path() {
+    local title="$1"
+    local default_path="$2"
+    local path_type="$3"  # 描述这是什么路径
+    local result_path=""
+    
+    while true; do
+        echo -e "\n╭─ ${title}"
+        echo -e "│"
+        echo -e "╰─ 默认路径: ${GREEN}${default_path}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认${path_type}路径?" "是" "否" "1"
+        local path_choice=$?
+        
+        if [ $path_choice -eq 1 ]; then
+            echo -e "${GREEN}✓ 使用默认${path_type}路径: ${default_path}${NC}"
+            result_path="${default_path}"
+            break
+        else
+            read -p "请输入${path_type}路径: " user_path
+            if [ -n "$user_path" ]; then
+                echo -e "${GREEN}✓ 使用自定义${path_type}路径: ${user_path}${NC}"
+                result_path="${user_path}"
+                break
+            else
+                echo -e "${YELLOW}路径不能为空，请重新选择${NC}"
+            fi
+        fi
+    done
+    
+    # 单独一行返回路径值，确保不包含其他输出
+    echo "$result_path"
+}
 
 # 用户配置部分
 configure_installation() {
 
-    echo -e "${BLUE}"
-    echo -e "   __ ____                    ___                         "
-    echo -e "  / //_/ /________ ____  ___ / _/__   ______ _  ___ _______"
-    echo -e " / ,< / __/ __/ _ \`/ _ \(_-</ _/ _ \/ __/  ' \/ -_) __(_-<"
-    echo -e "/_/|_|\__/_/  \_,_/_//_/___/_/ \___/_/ /_/_/_/\__/_/ /___/"
-    echo -e " +------------------------------------------------------+"
-    echo -e "${NC}\n"
+    echo "+=======================================+"
+    echo -e "|\033[0;1;31;91m╦\033[0;1;33;93m╔═\033[0;1;32;92m┌┬┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌─┐\033[0;1;35;95m┌┐┌\033[0;1;31;91m┌─┐\033[0;1;33;93m┌─┐\033[0;1;32;92m┌─┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌┬┐\033[0;1;35;95m┌─┐\033[0;1;31;91m┬─┐\033[0;1;33;93m┌─┐\033[0m|"
+    echo -e "|\033[0;1;32;92m╠\033[0;1;36;96m╩╗\033[0;1;34;94m │ \033[0;1;35;95m├┬┘\033[0;1;31;91m├─┤\033[0;1;33;93m│││\033[0;1;32;92m└─┐\033[0;1;36;96m├┤ \033[0;1;34;94m│ │\033[0;1;35;95m├┬┘\033[0;1;31;91m│││\033[0;1;33;93m├┤ \033[0;1;32;92m├┬┘\033[0;1;36;96m└─┐\033[0m|"
+    echo -e "|\033[0;1;34;94m╩\033[0;1;35;95m ╩\033[0;1;31;91m ┴ \033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m┘└┘\033[0;1;34;94m└─┘\033[0;1;35;95m└  \033[0;1;31;91m└─┘\033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m└─┘\033[0;1;34;94m┴└─\033[0;1;35;95m└─┘\033[0m|"
+    echo "+=======================================+"
     
 
     if [ $FAST_MODE -eq 1 ]; then
@@ -190,26 +301,59 @@ configure_installation() {
     else
         echo -e "\n${BLUE}配置安装参数${NC}"
         
-
-        echo -e "${YELLOW}请输入安装路径 (默认: ${INSTALL_DIR}):${NC}"
-        read -r user_install_dir
-        if [ -n "$user_install_dir" ]; then
-            INSTALL_DIR="$user_install_dir"
-            echo -e "${GREEN}✓ 安装路径已更新为: ${INSTALL_DIR}${NC}"
+        # 安装路径选择
+        local default_install_dir="${INSTALL_DIR}"
+        echo -e "\n╭─ 请选择安装路径"
+        echo -e "│"
+        echo -e "╰─ 默认路径: ${GREEN}${default_install_dir}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认安装路径?" "是" "否" "1"
+        local path_choice=$?
+        
+        if [ $path_choice -eq 1 ]; then
+            echo -e "${GREEN}✓ 使用默认安装路径: ${default_install_dir}${NC}"
+            INSTALL_DIR="${default_install_dir}"
+        else
+            read -p "请输入安装路径: " user_path
+            if [ -n "$user_path" ]; then
+                echo -e "${GREEN}✓ 使用自定义安装路径: ${user_path}${NC}"
+                INSTALL_DIR="$user_path"
+            else
+                echo -e "${YELLOW}路径不能为空，使用默认路径: ${default_install_dir}${NC}"
+                INSTALL_DIR="${default_install_dir}"
+            fi
         fi
         
-
-        echo -e "${YELLOW}请输入Conda环境名称 (默认: ${ENV_NAME}):${NC}"
-        read -r user_env_name
-        if [ -n "$user_env_name" ]; then
-            ENV_NAME="$user_env_name"
-            echo -e "${GREEN}✓ Conda环境名称已更新为: ${ENV_NAME}${NC}"
+        # 确保INSTALL_DIR是纯字符串，不包含格式字符
+        INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
+        
+        # Conda环境名称选择
+        echo -e "\n╭─ 请选择Conda环境名称"
+        echo -e "│"
+        echo -e "╰─ 默认环境名称: ${GREEN}${ENV_NAME}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认环境名称?" "是" "否" "1"
+        local env_choice=$?
+        
+        if [ $env_choice -eq 2 ]; then
+            read -p "请输入Conda环境名称: " user_env_name
+            if [ -n "$user_env_name" ]; then
+                ENV_NAME="$user_env_name"
+                echo -e "${GREEN}✓ Conda环境名称已更新为: ${ENV_NAME}${NC}"
+            else
+                echo -e "${YELLOW}使用默认环境名称: ${ENV_NAME}${NC}"
+            fi
+        else
+            echo -e "${GREEN}✓ 使用默认环境名称: ${ENV_NAME}${NC}"
         fi
         
-
-        echo -e "${YELLOW}是否启用USE_NUMA环境变量? [y/N]:${NC}"
-        read -r use_numa_option
-        if [[ "$use_numa_option" =~ ^[Yy]$ ]]; then
+        # 使用单选框选择NUMA环境变量设置
+        show_selection_menu "是否启用USE_NUMA环境变量?" "是" "否" "2"
+        local numa_choice=$?
+        
+        if [ $numa_choice -eq 1 ]; then
             USE_NUMA=1
             echo -e "${GREEN}✓ 已启用USE_NUMA环境变量${NC}"
         else
@@ -217,18 +361,44 @@ configure_installation() {
             echo -e "${GREEN}✓ 已禁用USE_NUMA环境变量${NC}"
         fi
         
+        # 添加是否使用国内代理的选项，使用改进的选择界面
+        show_selection_menu "是否使用国内代理和镜像站点?" "是" "否" "1"
+        local proxy_choice=$?
+        
+        if [ $proxy_choice -eq 1 ]; then
+            USE_GHPROXY=1
+            echo -e "${GREEN}✓ 已启用国内代理和镜像站点${NC}"
+        else
+            USE_GHPROXY=0
+            echo -e "${GREEN}✓ 已禁用国内代理和镜像站点${NC}"
+        fi
 
-        echo -e "${YELLOW}请输入编译最大线程数 (默认: ${MAX_JOBS}):${NC}"
-        read -r user_max_jobs
-        if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
-            MAX_JOBS="$user_max_jobs"
-            echo -e "${GREEN}✓ 编译最大线程数已更新为: ${MAX_JOBS}${NC}"
+        # 编译线程数选择
+        echo -e "\n╭─ 请选择编译最大线程数"
+        echo -e "│"
+        echo -e "╰─ 默认线程数: ${GREEN}${MAX_JOBS}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认线程数?" "是" "否" "1"
+        local jobs_choice=$?
+        
+        if [ $jobs_choice -eq 2 ]; then
+            read -p "请输入编译最大线程数: " user_max_jobs
+            if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
+                MAX_JOBS="$user_max_jobs"
+                echo -e "${GREEN}✓ 编译最大线程数已更新为: ${MAX_JOBS}${NC}"
+            else
+                echo -e "${YELLOW}使用默认线程数: ${MAX_JOBS}${NC}"
+            fi
+        else
+            echo -e "${GREEN}✓ 使用默认线程数: ${MAX_JOBS}${NC}"
         fi
         
-
-        echo -e "${YELLOW}是否启用调试模式? [y/N]:${NC}"
-        read -r debug_option
-        if [[ "$debug_option" =~ ^[Yy]$ ]]; then
+        # 使用单选框选择调试模式
+        show_selection_menu "是否启用调试模式?" "是" "否" "2"
+        local debug_choice=$?
+        
+        if [ $debug_choice -eq 1 ]; then
             DEBUG_MODE=1
             echo -e "${GREEN}✓ 已启用调试模式${NC}"
         else
@@ -247,7 +417,7 @@ configure_installation() {
     echo -e "${BLUE}● 编译线程: ${GREEN}${MAX_JOBS}${NC}"
     echo -e "${BLUE}● 调试模式: ${GREEN}$([ $DEBUG_MODE -eq 1 ] && echo "启用" || echo "禁用")${NC}"
     echo -e "${BLUE}● 运行模式: ${GREEN}$([ $FAST_MODE -eq 1 ] && echo "快速模式" || echo "标准模式")${NC}"
-    echo -e "${BLUE}● 网络检测: ${GREEN}IP检测与镜像站点自动选择${NC}"
+    echo -e "${BLUE}● 国内代理: ${GREEN}$([ $USE_GHPROXY -eq 1 ] && echo "启用" || echo "禁用")${NC}"
     
 
     if [ $FAST_MODE -eq 0 ]; then
@@ -780,142 +950,90 @@ install_git() {
 test_github_connectivity() {
     log "INFO" "测试GitHub连通性"
     
-
-    IS_PROXY_SITE=0
-    USE_GHPROXY=0
+    # 默认设置GitHub站点
+    BEST_GITHUB_SITE="github.com"
     
-
-    if is_china_ip; then
-        log "INFO" "检测到中国IP，使用ghfast.top代理服务"
-        USE_GHPROXY=1
-        BEST_GITHUB_SITE="github.com"
+    # 使用用户选择的配置
+    if [ $USE_GHPROXY -eq 1 ]; then
+        log "INFO" "使用ghfast.top代理服务"
         GHPROXY_URL="https://ghfast.top"
         log "SUCCESS" "已配置使用ghfast.top代理服务: $GHPROXY_URL"
         export GHPROXY_URL
-        export USE_GHPROXY
     else
-        log "INFO" "检测到非中国IP，将直接使用GitHub"
-        BEST_GITHUB_SITE="github.com"
+        log "INFO" "将直接使用GitHub"
         USE_GHPROXY=0
     fi
     
+    export USE_GHPROXY
     return 0
 }
 
 # 2. 拉取仓库
-clone_repository() {
-    log "INFO" "克隆KTransformers仓库到 $INSTALL_DIR"
+clone_repo() {
+    echo -e "${BLUE}[步骤 2] 克隆代码仓库${NC}"
     
-
-    mkdir -p "$INSTALL_DIR" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        log "ERROR" "无法创建目录 $INSTALL_DIR，请检查权限"
-        return 1
-    fi
+    # 确保INSTALL_DIR是纯路径，去除任何多余字符
+    INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
     
-
-    if [ ! -w "$INSTALL_DIR" ]; then
-        log "ERROR" "目录 $INSTALL_DIR 没有写入权限，请检查权限设置"
-        return 1
-    fi
-    
-
-    if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
-        if [ $FAST_MODE -eq 0 ]; then
-            log "WARN" "目录 $INSTALL_DIR 已存在且不为空"
-            read -p "是否继续安装? 这可能会覆盖现有文件 [y/N]: " -r
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                log "ERROR" "安装已取消"
-                exit 1
+    # 确保安装目录存在
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}[INFO] 目录已存在: $INSTALL_DIR${NC}"
+        
+        # 检查目录是否为空
+        if [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+            echo -e "${YELLOW}[WARN] 安装目录不为空${NC}"
+            
+            show_selection_menu "安装目录不为空，是否继续?" "是" "否" "1"
+            local continue_choice=$?
+            
+            if [ $continue_choice -ne 1 ]; then
+                echo -e "${YELLOW}[INFO] 用户选择不继续，退出安装${NC}"
+                exit 0
             fi
-        else
-            log "WARN" "目录 $INSTALL_DIR 已存在且不为空，快速模式下将继续安装"
+            
+            echo -e "${YELLOW}[INFO] 继续安装${NC}"
+            return 0
         fi
+    else
+        echo -e "${YELLOW}[INFO] 创建目录: $INSTALL_DIR${NC}"
+        mkdir -p "$INSTALL_DIR" || {
+            echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
+            return 1
+        }
     fi
     
-
+    # 根据用户选择设置不同的代理URL
     local repo_url="https://github.com/kvcache-ai/ktransformers.git"
+    local clone_url="$repo_url"
     
-
     if [ $USE_GHPROXY -eq 1 ]; then
-
-        log "INFO" "使用ghfast.top代理克隆仓库"
-        repo_url="${GHPROXY_URL}/https://github.com/kvcache-ai/ktransformers.git"
-    elif [ $IS_PROXY_SITE -eq 1 ]; then
-
-        log "INFO" "选择了代理站点 $BEST_GITHUB_SITE，使用代理克隆"
-        repo_url="https://${BEST_GITHUB_SITE}/https://github.com/kvcache-ai/ktransformers.git"
-
-        repo_url="https://${BEST_GITHUB_SITE}/kvcache-ai/ktransformers.git"
-        log "INFO" "使用镜像站点URL: $repo_url"
+        echo -e "${YELLOW}[INFO] 根据用户设置，使用国内代理克隆仓库${NC}"
+        clone_url="${GHPROXY_URL}/${repo_url}"
+        echo -e "${YELLOW}[DEBUG] 初始仓库URL: ${clone_url}${NC}"
     fi
     
-    log "DEBUG" "使用仓库URL: $repo_url"
+    echo -e "${YELLOW}[INFO] 开始$([ $USE_GHPROXY -eq 1 ] && echo "使用${GHPROXY_URL}代理")克隆...${NC}"
     
-
-    local tmp_log=$(mktemp)
-    log "INFO" "开始克隆仓库..."
-    
-
-    git clone "$repo_url" "$INSTALL_DIR" --progress 2>&1 | tee "$tmp_log" | grep --line-buffered -i "Receiving objects\|Resolving deltas"
-    local exit_code=${PIPESTATUS[0]}
-    
-
-    if [ $exit_code -eq 0 ] && [ -d "$INSTALL_DIR/.git" ]; then
-        log "SUCCESS" "仓库克隆成功"
-        rm -f "$tmp_log"
+    # 克隆仓库
+    if git clone "$clone_url" "$INSTALL_DIR"; then
+        echo -e "${GREEN}✓ 仓库克隆成功${NC}"
         return 0
     else
-        log "ERROR" "仓库克隆失败 (错误码: $exit_code)"
-        log "DEBUG" "克隆错误详情:"
-        cat "$tmp_log" | tail -n 20
-        
-
-        if grep -q "timeout\|timed out\|connection refused\|network" "$tmp_log"; then
-            log "WARN" "检测到网络问题，尝试使用备用方法..."
+        # 如果使用代理失败，尝试直接连接
+        if [ $USE_GHPROXY -eq 1 ]; then
+            echo -e "${YELLOW}[WARN] 使用代理克隆失败，尝试直接连接...${NC}"
             
-
-            if [ $USE_GHPROXY -eq 1 ]; then
-
-                if [[ "$GHPROXY_URL" == "https://ghfast.top" ]]; then
-
-                    local other_proxies=(
-                        "https://ghproxy.homeboyc.cn"
-                        "https://mirror.ghproxy.com"
-                        "https://ghproxy.net"
-                        "https://gh.api.99988866.xyz"
-                    )
-                    
-                    for proxy in "${other_proxies[@]}"; do
-                        log "INFO" "尝试使用代理 $proxy 克隆..."
-                        if git clone "${proxy}/https://github.com/kvcache-ai/ktransformers.git" "$INSTALL_DIR" --progress; then
-                            log "SUCCESS" "使用代理 $proxy 克隆成功"
-                            rm -f "$tmp_log"
-                            return 0
-                        fi
-                    done
-                fi
-                
-
-                log "INFO" "所有代理都失败，尝试直接从GitHub克隆..."
-                if git clone "https://github.com/kvcache-ai/ktransformers.git" "$INSTALL_DIR" --progress; then
-                    log "SUCCESS" "使用直接连接克隆成功"
-                    rm -f "$tmp_log"
-                    return 0
-                fi
-
-            elif [ $USE_GHPROXY -eq 0 ]; then
-                log "INFO" "尝试使用ghfast.top代理克隆..."
-                if git clone "https://ghfast.top/https://github.com/kvcache-ai/ktransformers.git" "$INSTALL_DIR" --progress; then
-                    log "SUCCESS" "使用ghfast.top代理克隆成功"
-                    rm -f "$tmp_log"
-                    return 0
-                fi
+            if git clone "$repo_url" "$INSTALL_DIR"; then
+                echo -e "${GREEN}✓ 直接克隆仓库成功${NC}"
+                return 0
+            else
+                echo -e "${RED}× 仓库克隆失败${NC}"
+                return 1
             fi
+        else
+            echo -e "${RED}× 仓库克隆失败${NC}"
+            return 1
         fi
-        
-        rm -f "$tmp_log"
-        return 1
     fi
 }
 
@@ -923,172 +1041,263 @@ clone_repository() {
 install_conda() {
     echo -e "${BLUE}[步骤 3] 检测conda${NC}"
     
-
+    # 记录当前用户信息
+    local current_user=$(whoami)
+    local non_root_user=""
+    
+    # 如果当前是root用户，尝试找到一个非root用户
+    if [ "$(id -u)" -eq 0 ]; then
+        non_root_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+        if [ -z "$non_root_user" ]; then
+            non_root_user=$SUDO_USER
+        fi
+        if [ -z "$non_root_user" ]; then
+            echo -e "${YELLOW}未找到非root用户，将使用当前用户${NC}"
+            non_root_user="root"
+        fi
+    else
+        non_root_user=$current_user
+    fi
+    
+    echo -e "${YELLOW}检测到用户: $current_user, 目标用户: $non_root_user${NC}"
+    
+    # 检查所有用户的conda安装
+    local found_conda=0
+    local found_conda_path=""
+    local all_users=()
+    
+    # 获取所有普通用户列表
+    if [ -f "/etc/passwd" ]; then
+        all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+        echo -e "${YELLOW}系统中的普通用户: ${all_users[*]}${NC}"
+    fi
+    
+    # 添加当前用户和非root用户到检查列表
+    all_users+=("$current_user")
+    if [ "$non_root_user" != "$current_user" ] && [ "$non_root_user" != "root" ]; then
+        all_users+=("$non_root_user")
+    fi
+    
+    # 去重
+    all_users=($(echo "${all_users[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+    
+    echo -e "${YELLOW}将检查以下用户的conda安装: ${all_users[*]}${NC}"
+    
+    # 先检查当前环境中是否有conda命令
     if command_exists conda; then
-        echo -e "${GREEN}✓ conda已安装: $(which conda)${NC}"
+        found_conda=1
+        found_conda_path=$(which conda)
+        echo -e "${GREEN}✓ 当前环境中找到conda: $found_conda_path${NC}"
+    else
+        # 检查所有用户的可能conda安装路径
+        for user in "${all_users[@]}"; do
+            local home_dir
+            
+            if [ "$user" = "root" ]; then
+                home_dir="/root"
+            else
+                home_dir="/home/$user"
+            fi
+            
+            echo -e "${YELLOW}检查用户 $user 的conda安装 ($home_dir)${NC}"
+            
+            local possible_conda_paths=(
+                "$home_dir/miniconda3/bin/conda"
+                "$home_dir/anaconda3/bin/conda"
+                "$home_dir/conda/bin/conda"
+            )
+            
+            for conda_path in "${possible_conda_paths[@]}"; do
+                if [ -f "$conda_path" ]; then
+                    found_conda=1
+                    found_conda_path=$conda_path
+                    echo -e "${GREEN}✓ 在用户 $user 目录找到conda: ${conda_path}${NC}"
+                    break 2
+                fi
+            done
+        done
+        
+        # 检查系统目录
+        local system_conda_paths=(
+            "/usr/local/miniconda3/bin/conda"
+            "/usr/local/anaconda3/bin/conda"
+            "/usr/local/conda/bin/conda"
+            "/opt/conda/bin/conda"
+        )
+        
+        for conda_path in "${system_conda_paths[@]}"; do
+            if [ -f "$conda_path" ]; then
+                found_conda=1
+                found_conda_path=$conda_path
+                echo -e "${GREEN}✓ 在系统目录找到conda: ${conda_path}${NC}"
+                break
+            fi
+        done
+    fi
+    
+    # 如果找到了conda
+    if [ $found_conda -eq 1 ]; then
+        local conda_base_dir=$(dirname $(dirname "$found_conda_path"))
+        echo -e "${GREEN}✓ 找到conda安装目录: $conda_base_dir${NC}"
+        
+        # 更新所有用户的PATH设置
+        update_all_users_path "$conda_base_dir"
+        
+        # 确保当前环境中conda可用
+        export PATH="$conda_base_dir/bin:$PATH"
+        
+        # 初始化conda
+        if command_exists conda; then
+            echo -e "${GREEN}✓ conda已可用${NC}"
+            
+            # 显示conda版本
+            if [ $DEBUG_MODE -eq 1 ]; then
+                conda_version=$(conda --version)
+                echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
+            fi
+            return 0
+        else
+            echo -e "${YELLOW}虽然找到conda但未能使其在当前环境中可用，尝试安装新的conda${NC}"
+        fi
+    fi
+    
+    # 如果没有找到conda，则安装
+    echo -e "${YELLOW}未找到可用的conda，准备安装miniconda...${NC}"
+    
+    # 确定安装目录（安装到非root用户目录下）
+    local install_dir
+    if [ "$non_root_user" != "root" ]; then
+        install_dir="/home/$non_root_user/miniconda3"
+        echo -e "${YELLOW}将安装conda到非root用户目录: $install_dir${NC}"
+    else
+        # 如果没有非root用户，则安装到/opt
+        install_dir="/opt/conda"
+        echo -e "${YELLOW}未找到适合的非root用户，将安装conda到系统目录: $install_dir${NC}"
+    fi
+    
+    # 使用国内或国际镜像
+    local miniconda_url=""
+    if [ $USE_GHPROXY -eq 1 ]; then
+        miniconda_url="https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+    else
+        miniconda_url="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+    fi
+    
+    # 下载miniconda
+    echo -e "${YELLOW}下载Miniconda安装脚本...${NC}"
+    local miniconda_installer="/tmp/miniconda.sh"
+    retry_command_with_logging "wget $miniconda_url -O $miniconda_installer" 300
+    
+    # 安装conda
+    echo -e "${YELLOW}安装conda到: $install_dir${NC}"
+    bash $miniconda_installer -b -p $install_dir
+    local install_status=$?
+    
+    # 清理安装文件
+    rm -f $miniconda_installer
+    
+    if [ $install_status -ne 0 ]; then
+        echo -e "${RED}× conda安装失败${NC}"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
+        return 1
+    fi
+    
+    # 设置权限
+    if [ "$non_root_user" != "root" ]; then
+        echo -e "${YELLOW}设置conda目录权限给用户: $non_root_user${NC}"
+        chown -R $non_root_user:$non_root_user $install_dir
+    fi
+    
+    # 更新所有用户的PATH
+    update_all_users_path "$install_dir"
+    
+    # 更新当前PATH
+    export PATH="$install_dir/bin:$PATH"
+    
+    # 验证安装
+    if command_exists conda; then
+        echo -e "${GREEN}✓ conda安装成功且可用${NC}"
+        
+        # 初始化conda
+        echo -e "${YELLOW}初始化conda...${NC}"
+        "$install_dir/bin/conda" init bash
+        
         if [ $DEBUG_MODE -eq 1 ]; then
             conda_version=$(conda --version)
             echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
         fi
         return 0
+    else
+        echo -e "${RED}× conda安装失败，无法在PATH中找到conda命令${NC}"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
+        return 1
+    fi
+}
+
+# 更新所有用户的PATH以包含conda
+update_all_users_path() {
+    local conda_dir="$1"
+    echo -e "${YELLOW}更新所有用户的PATH以包含conda: $conda_dir${NC}"
+    
+    # 创建系统级conda初始化脚本
+    echo -e "${YELLOW}创建系统级conda初始化脚本...${NC}"
+    cat > /etc/profile.d/conda.sh << EOF
+# 添加conda到系统PATH
+export PATH="$conda_dir/bin:\$PATH"
+
+# 为了兼容不同的shell，添加conda初始化
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+fi
+EOF
+    chmod +x /etc/profile.d/conda.sh
+    
+    # 确保/etc/bashrc中source该文件
+    if [ -f "/etc/bashrc" ] && ! grep -q "/etc/profile.d/conda.sh" /etc/bashrc; then
+        echo -e "${YELLOW}添加conda初始化到/etc/bashrc...${NC}"
+        echo "[ -f /etc/profile.d/conda.sh ] && . /etc/profile.d/conda.sh" >> /etc/bashrc
     fi
     
-
-    local possible_conda_paths=(
-        "$HOME/miniconda3/bin/conda"
-        "$HOME/anaconda3/bin/conda"
-        "~/miniconda3/bin/conda"
-        "/opt/conda/bin/conda"
-    )
+    # 为所有用户添加conda初始化到.bashrc
+    echo -e "${YELLOW}为用户添加conda初始化到.bashrc...${NC}"
+    local all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+    all_users+=("root")  # 也包括root用户
     
+    for user in "${all_users[@]}"; do
+        local home_dir
+        if [ "$user" = "root" ]; then
+            home_dir="/root"
+        else
+            home_dir="/home/$user"
+        fi
+        
+        local bashrc="$home_dir/.bashrc"
+        
+        if [ -f "$bashrc" ] && ! grep -q "conda.sh" "$bashrc"; then
+            echo -e "${YELLOW}添加conda初始化到 $user 的.bashrc...${NC}"
+            cat >> "$bashrc" << EOF
 
-    for conda_path in "${possible_conda_paths[@]}"; do
-        if [ -f "$conda_path" ]; then
-            echo -e "${YELLOW}找到conda但未在PATH中: ${conda_path}${NC}"
-            echo -e "${YELLOW}正在将conda添加到PATH...${NC}"
+# >>> conda initialize >>>
+# !! 由KTransformers安装脚本添加 !!
+export PATH="$conda_dir/bin:\$PATH"
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+else
+    export PATH="$conda_dir/bin:\$PATH"
+fi
+# <<< conda initialize <<<
+EOF
             
-
-            local conda_dir=$(dirname $(dirname "$conda_path"))
-            export PATH="${conda_dir}/bin:$PATH"
-            
-
-            if command_exists conda; then
-                echo -e "${GREEN}✓ 成功将conda添加到PATH: $(which conda)${NC}"
-                if [ $DEBUG_MODE -eq 1 ]; then
-                    conda_version=$(conda --version)
-                    echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将conda添加到PATH: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
-                fi
-                return 0
+            # 设置正确的所有权
+            if [ "$user" != "root" ] && [ "$(id -u)" -eq 0 ]; then
+                chown $user:$user "$bashrc"
             fi
         fi
     done
     
-    echo -e "${YELLOW}conda未安装，正在安装miniconda...${NC}"
-    
-
-    retry_command_with_logging "wget https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"
-    
-
-    if [ "$(id -u)" -eq 0 ]; then
-        local non_root_user=$(who | awk '{print $1}' | head -n 1)
-        if [ -z "$non_root_user" ]; then
-            non_root_user="ktuser"
-            useradd -m -s /bin/bash $non_root_user || echo -e "${YELLOW}用户 $non_root_user 已存在${NC}"
-            echo -e "${YELLOW}已创建用户 $non_root_user 用于安装conda${NC}"
-        fi
-        echo -e "${YELLOW}将为用户 $non_root_user 安装conda${NC}"
-        
-
-        local miniconda_dir="/home/$non_root_user/miniconda3"
-        if [ -d "$miniconda_dir" ]; then
-            echo -e "${YELLOW}miniconda目录已存在: $miniconda_dir${NC}"
-            echo -e "${YELLOW}尝试使用已有安装...${NC}"
-            
-
-            echo "export PATH=$miniconda_dir/bin:\$PATH" > /etc/profile.d/conda.sh
-            chmod +x /etc/profile.d/conda.sh
-            
-
-            export PATH="$miniconda_dir/bin:$PATH"
-            
-
-            if command_exists conda; then
-                echo -e "${GREEN}✓ conda设置成功${NC}"
-                return 0
-            else
-                echo -e "${YELLOW}无法使用已有安装，尝试修复...${NC}"
-
-                su - $non_root_user -c "bash /tmp/miniconda.sh -u -b -p $miniconda_dir"
-            fi
-        else
-
-            su - $non_root_user -c "bash /tmp/miniconda.sh -b -p $miniconda_dir"
-        fi
-        
-
-        echo "export PATH=$miniconda_dir/bin:\$PATH" > /etc/profile.d/conda.sh
-        chmod +x /etc/profile.d/conda.sh
-        
-
-        export PATH="$miniconda_dir/bin:$PATH"
-        
-
-        if command_exists conda; then
-            echo -e "${YELLOW}正在初始化conda...${NC}"
-            su - $non_root_user -c "conda init bash"
-            echo -e "${GREEN}✓ conda初始化成功${NC}"
-            
-            if [ $DEBUG_MODE -eq 1 ]; then
-                conda_version=$(conda --version)
-                echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
-            fi
-            return 0
-        else
-            echo -e "${RED}× conda安装或配置失败${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装或配置失败" >> "$LOG_FILE"
-            return 1
-        fi
-    else
-
-        local miniconda_dir="$HOME/miniconda3"
-        if [ -d "$miniconda_dir" ]; then
-            echo -e "${YELLOW}miniconda目录已存在: $miniconda_dir${NC}"
-            echo -e "${YELLOW}尝试使用已有安装...${NC}"
-            
-
-            export PATH="$miniconda_dir/bin:$PATH"
-            
-
-            if command_exists conda; then
-                echo -e "${GREEN}✓ conda设置成功${NC}"
-                
-
-                echo -e "${YELLOW}确保conda已初始化...${NC}"
-                conda init bash
-                
-                if [ $DEBUG_MODE -eq 1 ]; then
-                    conda_version=$(conda --version)
-                    echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已设置: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
-                fi
-                return 0
-            else
-                echo -e "${YELLOW}无法使用已有安装，尝试修复...${NC}"
-
-                bash /tmp/miniconda.sh -u -b -p $miniconda_dir
-            fi
-        else
-
-            bash /tmp/miniconda.sh -b -p $miniconda_dir
-        fi
-        
-
-        export PATH="$miniconda_dir/bin:$PATH"
-        echo "export PATH=$miniconda_dir/bin:\$PATH" >> $HOME/.bashrc
-        
-
-        if command_exists conda; then
-            echo -e "${YELLOW}正在初始化conda...${NC}"
-            conda init bash
-            echo -e "${GREEN}✓ conda初始化成功${NC}"
-            
-            if [ $DEBUG_MODE -eq 1 ]; then
-                conda_version=$(conda --version)
-                echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
-            fi
-            return 0
-        else
-            echo -e "${RED}× conda安装失败${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
-            return 1
-        fi
-    fi
-    
-    rm -f /tmp/miniconda.sh
+    echo -e "${GREEN}✓ 已更新所有用户的PATH${NC}"
 }
 
 # 4. 使用conda创建环境
@@ -1106,23 +1315,9 @@ create_conda_env() {
 check_and_set_pip_mirror() {
     echo -e "${BLUE}[准备工作] 检查pip源配置${NC}"
     
-
     local pip_config_file="$HOME/.pip/pip.conf"
-    local is_china=false
     
-
-    if command_exists curl; then
-
-        local cn_delay=$(timeout 5 curl -s -o /dev/null -w "%{time_total}" https://www.baidu.com 2>/dev/null || echo "10")
-        local global_delay=$(timeout 5 curl -s -o /dev/null -w "%{time_total}" https://www.google.com 2>/dev/null || echo "10")
-        
-        if (( $(echo "$cn_delay < $global_delay" | bc -l) )); then
-            is_china=true
-            echo -e "${YELLOW}检测到您可能位于中国大陆，建议使用国内镜像源${NC}"
-        fi
-    fi
-    
-
+    # 查看当前pip配置
     local current_index_url=""
     if [ -f "$pip_config_file" ]; then
         current_index_url=$(grep "index-url" "$pip_config_file" 2>/dev/null | cut -d "=" -f 2 | tr -d " ")
@@ -1130,7 +1325,6 @@ check_and_set_pip_mirror() {
         if [ -n "$current_index_url" ]; then
             echo -e "${YELLOW}当前pip源: ${current_index_url}${NC}"
             
-
             if echo "$current_index_url" | grep -q -E "mirrors.ustc.edu.cn|tuna.tsinghua.edu.cn|mirrors.aliyun.com"; then
                 echo -e "${GREEN}✓ 已配置国内pip源${NC}"
                 return 0
@@ -1138,11 +1332,10 @@ check_and_set_pip_mirror() {
         fi
     fi
     
-
-    if [ "$is_china" = true ] || [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${YELLOW}准备设置pip源为USTC源...${NC}"
+    # 使用用户选择的国内代理配置
+    if [ $USE_GHPROXY -eq 1 ]; then
+        echo -e "${YELLOW}根据您的选择，将设置pip源为USTC源...${NC}"
         
-
         mkdir -p $(dirname "$pip_config_file")
         echo "[global]
 index-url = https://mirrors.ustc.edu.cn/pypi/web/simple
@@ -1406,7 +1599,7 @@ detect_pytorch_cuda_version() {
 
 # 安装并验证PyTorch
 install_pytorch() {
-    echo -e "${BLUE}[步骤 9] 安装GPU版本PyTorch${NC}"
+    echo -e "${BLUE}[步骤 6] 安装GPU版本PyTorch${NC}"
     
     if ! command_exists pip; then
         echo -e "${YELLOW}pip命令不存在，尝试安装...${NC}"
@@ -1527,98 +1720,152 @@ install_pytorch() {
 
 # 6. 初始化git子模块
 init_git_submodules() {
-    log "INFO" "初始化git子模块"
+    log "INFO" "初始化子模块..."
     
-
-    cd "$INSTALL_DIR" || {
-        log "ERROR" "无法进入安装目录 $INSTALL_DIR"
-        return 1
-    }
-    
-
-    if [ $USE_GHPROXY -eq 1 ]; then
-        log "INFO" "使用ghfast.top代理加速子模块克隆"
+    # 更新.gitmodules中的URL以使用代理
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+        log "INFO" "使用代理配置子模块URL..."
         
-
+        # 检查.gitmodules文件是否存在
         if [ -f ".gitmodules" ]; then
-            log "INFO" "修改.gitmodules使用ghfast.top代理"
-            sed -i.bak "s|https://github.com|${GHPROXY_URL}/https://github.com|g" .gitmodules
-            log "SUCCESS" "已为子模块添加ghfast.top代理前缀"
+            # 备份原始.gitmodules文件
+            cp .gitmodules .gitmodules.backup
             
-
-            log "INFO" "配置git全局设置，使用ghfast.top代理"
-            git config --global url."${GHPROXY_URL}/https://github.com/".insteadOf "https://github.com/"
+            # 替换顶级.gitmodules中的URL
+            sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
             
-
-            if [ $DEBUG_MODE -eq 1 ]; then
-                log "DEBUG" "当前git配置:"
-                git config --global --get-regexp url
-                log "DEBUG" "当前.gitmodules内容:"
-                cat .gitmodules
-            fi
-        fi
-    elif [ "$BEST_GITHUB_SITE" != "github.com" ] && [ $IS_PROXY_SITE -eq 0 ]; then
-
-        if [ -f ".gitmodules" ]; then
-            log "INFO" "修改.gitmodules使用镜像站点 $BEST_GITHUB_SITE"
-            sed -i.bak "s|https://github.com|https://${BEST_GITHUB_SITE}|g" .gitmodules
-            
-
-            git config --global url."https://${BEST_GITHUB_SITE}/".insteadOf "https://github.com/"
-        fi
-    fi
-    
-
-    git submodule sync
-    
-
-    log "INFO" "执行git子模块初始化..."
-    if git submodule init; then
-        log "SUCCESS" "git子模块初始化完成"
-        return 0
-    else
-        log "ERROR" "git子模块初始化失败"
-
-        if [ -f ".gitmodules.bak" ]; then
-            mv .gitmodules.bak .gitmodules
+            log "INFO" "更新.gitmodules中的URL以使用代理..."
             git submodule sync
         fi
-        
-
-        if [ $USE_GHPROXY -eq 1 ]; then
-            git config --global --unset url."${GHPROXY_URL}/https://github.com/".insteadOf
-        elif [ "$BEST_GITHUB_SITE" != "github.com" ] && [ $IS_PROXY_SITE -eq 0 ]; then
-            git config --global --unset url."https://${BEST_GITHUB_SITE}/".insteadOf
-        fi
-        
-        return 1
     fi
+    
+    # 初始化顶级子模块
+    git submodule update --init
+    
+    # 递归处理所有子模块及其嵌套子模块的URL
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+        log "INFO" "递归更新所有子模块的URL以使用代理..."
+        
+        # 获取所有子模块路径
+        submodule_paths=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
+        
+        for submodule_path in $submodule_paths; do
+            log "INFO" "处理子模块: $submodule_path"
+            
+            # 进入子模块目录
+            if [ -d "$submodule_path" ]; then
+                (cd "$submodule_path" && {
+                    # 检查子模块中是否有自己的.gitmodules文件
+                    if [ -f ".gitmodules" ]; then
+                        log "INFO" "更新子模块 $submodule_path 中的.gitmodules"
+                        
+                        # 备份原始.gitmodules文件
+                        cp .gitmodules .gitmodules.backup
+                        
+                        # 替换子模块中的.gitmodules中的URL
+                        sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
+                        
+                        # 同步子模块中的子模块
+                        git submodule sync
+                        
+                        # 初始化和更新嵌套的子模块
+                        git submodule update --init
+                        
+                        # 递归处理嵌套子模块
+                        nested_submodule_paths=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
+                        for nested_path in $nested_submodule_paths; do
+                            log "INFO" "处理嵌套子模块: $nested_path"
+                            # 进入嵌套子模块目录
+                            if [ -d "$nested_path" ]; then
+                                (cd "$nested_path" && {
+                                    if [ -f ".gitmodules" ]; then
+                                        log "INFO" "更新嵌套子模块 $nested_path 中的.gitmodules"
+                                        cp .gitmodules .gitmodules.backup
+                                        sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
+                                        git submodule sync
+                                        git submodule update --init
+                                    fi
+                                })
+                            fi
+                        done
+                    fi
+                })
+            fi
+        done
+    fi
+    
+    # 最后再执行一次完整的递归更新
+    log "INFO" "完成子模块初始化..."
+    git submodule update --init --recursive
+    
+    log "SUCCESS" "子模块初始化完成"
+    return 0
 }
 
-# 7. 安装libnuma-dev
+# 7. 安装libnuma库
 install_libnuma() {
-    echo -e "${BLUE}[步骤 7] 安装libnuma-dev${NC}"
-    if DEBIAN_FRONTEND=noninteractive apt-get install -y libnuma-dev; then
-        echo -e "${GREEN}✓ libnuma-dev安装成功${NC}"
+    echo -e "${BLUE}[步骤 7] 安装libnuma库${NC}"
+    
+    # 检查是否已安装
+    if ldconfig -p | grep -q "libnuma.so"; then
+        echo -e "${GREEN}✓ libnuma已安装${NC}"
         return 0
-    else
-        echo -e "${RED}× libnuma-dev安装失败${NC}"
-        return 1
     fi
+    
+    echo -e "${YELLOW}libnuma未安装，尝试安装...${NC}"
+    
+    # 尝试使用apt安装
+    if command_exists apt-get; then
+        echo -e "${YELLOW}使用apt安装libnuma-dev...${NC}"
+        apt-get update && apt-get install -y libnuma-dev
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ libnuma-dev安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× apt安装libnuma-dev失败${NC}"
+        fi
+    fi
+    
+    # 尝试使用yum安装
+    if command_exists yum; then
+        echo -e "${YELLOW}使用yum安装numactl-devel...${NC}"
+        yum install -y numactl-devel
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ numactl-devel安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× yum安装numactl-devel失败${NC}"
+        fi
+    fi
+    
+    # 尝试使用dnf安装
+    if command_exists dnf; then
+        echo -e "${YELLOW}使用dnf安装numactl-devel...${NC}"
+        dnf install -y numactl-devel
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ numactl-devel安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× dnf安装numactl-devel失败${NC}"
+        fi
+    fi
+    
+    echo -e "${RED}× 无法安装libnuma库，请手动安装后再继续${NC}"
+    return 1
 }
 
 # 8. 设置USE_NUMA环境变量
 set_use_numa() {
     echo -e "${BLUE}[步骤 8] 设置USE_NUMA环境变量${NC}"
     
-
     if [ $USE_NUMA -eq 1 ]; then
         export USE_NUMA=1
-        echo -e "${GREEN}✓ 已设置USE_NUMA=1${NC}"
+        echo -e "${GREEN}✓ 已启用USE_NUMA环境变量${NC}"
     else
-        export USE_NUMA=0
-        echo -e "${YELLOW}USE_NUMA环境变量已禁用${NC}"
+        echo -e "${YELLOW}未启用USE_NUMA环境变量${NC}"
     fi
+    
+    return 0
 }
 
 # 9. 下载预编译的flashinfer
@@ -1851,7 +2098,6 @@ make_dev_install() {
     
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
     
-
     if make_output=$(make dev_install 2>&1); then
         echo -e "${GREEN}✓ make dev_install执行成功${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
@@ -2007,25 +2253,16 @@ activate_conda_env() {
     cat > activate_env.sh << EOF
 #!/bin/bash
 # 添加conda到PATH
-export PATH="\$HOME/miniconda3/bin:\$PATH"
-# 对root用户，可能需要不同的路径
-if [ "\$(id -u)" -eq 0 ]; then
-    non_root_user=\$(who | awk '{print \$1}' | head -n 1)
-    if [ -n "\$non_root_user" ]; then
-        export PATH="/home/\$non_root_user/miniconda3/bin:\$PATH"
-    fi
-fi
+export PATH="/usr/local/conda/bin:\$PATH"
 
 # 初始化conda
-if [ -f "\$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-    . "\$HOME/miniconda3/etc/profile.d/conda.sh"
-elif [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
-    . "/opt/conda/etc/profile.d/conda.sh"
-elif [ -f "~/miniconda3/etc/profile.d/conda.sh" ]; then
-    . "~/miniconda3/etc/profile.d/conda.sh"
+if [ -f "/usr/local/conda/etc/profile.d/conda.sh" ]; then
+    . "/usr/local/conda/etc/profile.d/conda.sh"
+elif [ -f "/etc/profile.d/conda.sh" ]; then
+    . "/etc/profile.d/conda.sh"
 else
     echo "conda.sh not found, conda may not be properly installed"
-    exit 1
+    echo "尝试使用PATH中的conda"
 fi
 
 # 激活环境
@@ -2035,53 +2272,47 @@ conda activate $ENV_NAME
 cd "$INSTALL_DIR"
 
 # 设置USE_NUMA环境变量
-export USE_NUMA=1
+if [ "$USE_NUMA" = "1" ]; then
+    export USE_NUMA=1
+    echo "已启用USE_NUMA环境变量"
+fi
 
 # 显示当前环境信息
-echo "当前环境: \$(conda info --envs | grep '*' || echo '未激活任何环境')"
-echo "Python: \$(which python || echo '未找到Python')"
-echo "当前目录: \$(pwd)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "                       环境激活信息                                 "
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "➤ 当前环境: \$(conda info --envs | grep '*' || echo '未激活任何环境')"
+echo "➤ Python: \$(which python || echo '未找到Python')"
+echo "➤ 当前目录: \$(pwd)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 EOF
     
     chmod +x activate_env.sh
     
-
+    # 尝试激活环境
     local activation_success=false
     
-
-    if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-        echo -e "${YELLOW}尝试使用conda.sh激活环境...${NC}"
-        . "$HOME/miniconda3/etc/profile.d/conda.sh"
+    # 首先尝试系统安装的conda
+    if [ -f "/usr/local/conda/etc/profile.d/conda.sh" ]; then
+        echo -e "${YELLOW}尝试使用系统级conda激活环境...${NC}"
+        . "/usr/local/conda/etc/profile.d/conda.sh"
         if conda activate $ENV_NAME 2>/dev/null; then
             activation_success=true
             echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
         fi
     fi
     
-
-    if [ "$(id -u)" -eq 0 ] && [ "$activation_success" = false ]; then
-        local non_root_user=$(who | awk '{print $1}' | head -n 1)
-        if [ -n "$non_root_user" ] && [ -f "/home/$non_root_user/miniconda3/etc/profile.d/conda.sh" ]; then
-            echo -e "${YELLOW}尝试使用非root用户的conda.sh激活环境...${NC}"
-            . "/home/$non_root_user/miniconda3/etc/profile.d/conda.sh"
-            if conda activate $ENV_NAME 2>/dev/null; then
-                activation_success=true
-                echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
-            fi
-        fi
-    fi
-    
-
-    if [ "$activation_success" = false ] && [ -f "~/miniconda3/etc/profile.d/conda.sh" ]; then
-        echo -e "${YELLOW}尝试使用用户的conda.sh激活环境...${NC}"
-        . "~/miniconda3/etc/profile.d/conda.sh"
+    # 如果失败，尝试/etc/profile.d中的conda
+    if [ "$activation_success" = false ] && [ -f "/etc/profile.d/conda.sh" ]; then
+        echo -e "${YELLOW}尝试使用/etc/profile.d/conda.sh激活环境...${NC}"
+        . "/etc/profile.d/conda.sh"
         if conda activate $ENV_NAME 2>/dev/null; then
             activation_success=true
             echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
         fi
     fi
     
-
+    # 如果以上都失败，尝试直接使用conda命令
     if [ "$activation_success" = false ] && command_exists conda; then
         echo -e "${YELLOW}尝试直接使用conda命令激活环境...${NC}"
         conda activate $ENV_NAME 2>/dev/null
@@ -2091,49 +2322,21 @@ EOF
         fi
     fi
     
-
+    # 如果所有尝试都失败
     if [ "$activation_success" = false ]; then
-        echo -e "${YELLOW}无法激活环境 $ENV_NAME，尝试修复...${NC}"
-        
-
-        if command_exists conda; then
-            echo -e "${YELLOW}重新初始化conda...${NC}"
-            conda init bash
-            
-
-            if [ -f "$HOME/.bashrc" ]; then
-                echo -e "${YELLOW}重新加载shell环境...${NC}"
-                . "$HOME/.bashrc"
-
-                if conda activate $ENV_NAME 2>/dev/null; then
-                    activation_success=true
-                    echo -e "${GREEN}✓ 修复后成功激活环境 $ENV_NAME${NC}"
-                else
-                    echo -e "${YELLOW}修复后仍无法激活环境，继续执行脚本...${NC}"
-                    echo -e "${YELLOW}您可以稍后使用 'source activate_env.sh' 手动激活环境${NC}"
-                fi
-            else
-                echo -e "${YELLOW}找不到.bashrc文件，无法重新加载环境${NC}"
-            fi
-        else
-            echo -e "${RED}× 找不到conda命令，无法修复${NC}"
-        fi
+        echo -e "${YELLOW}无法自动激活环境 $ENV_NAME${NC}"
+        echo -e "${YELLOW}完成安装后，请运行以下命令激活环境:${NC}"
+        echo -e "${BLUE}source $(pwd)/activate_env.sh${NC}"
     fi
     
-
+    # 进入安装目录
     if [ -d "$INSTALL_DIR" ]; then
         cd "$INSTALL_DIR" || echo -e "${RED}切换到 $INSTALL_DIR 失败${NC}"
     else
         echo -e "${RED}目录 $INSTALL_DIR 不存在${NC}"
     fi
     
-    echo -e "${GREEN}✓ 已创建激活脚本并尝试进入仓库目录${NC}"
-    
-
-    if [ "$activation_success" = false ]; then
-        echo -e "${YELLOW}提示: 安装完成后，请执行以下命令激活环境:${NC}"
-        echo -e "${BLUE}source $(pwd)/activate_env.sh${NC}"
-    fi
+    echo -e "${GREEN}✓ 已创建激活脚本: $(pwd)/activate_env.sh${NC}"
     
     return 0
 }
@@ -2277,20 +2480,17 @@ update_git_submodules_with_progress() {
     fi
 }
 
-# 安装flash_attn
+# 安装Flash Attention
 install_flash_attn() {
     log "INFO" "安装Flash Attention"
-    
 
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
         log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..."
-        
 
         local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
             TORCH_VERSION="$torch_version"
             FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d. -f1,2 | sed 's/\.//')"
-            
 
             local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
             if [ -n "$cuda_torch_version" ]; then
@@ -2303,59 +2503,46 @@ install_flash_attn() {
             return 1
         fi
     fi
-    
 
     local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
     if [ -z "$python_version" ]; then
         log "ERROR" "无法检测到Python版本"
         return 1
     fi
-    
 
     local actual_cuda_version="$CUDA_VERSION"
     local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
-    
-
     local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
-    
-
     FORMATTED_CUDA_VERSION="cu${cuda_major}"
-    
+
     log "INFO" "检测到环境信息:"
     log "INFO" "- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})"
     log "INFO" "- 将使用CUDA大版本: ${FORMATTED_CUDA_VERSION} 进行安装"
     log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})"
     log "INFO" "- Python版本: ${python_version}"
-    
 
     log "INFO" "尝试安装预编译的Flash Attention..."
-    
 
     local flash_attn_version="2.7.4.post1"
     local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
     local package_name="flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
-    
 
     local flash_attn_url
     if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-
         flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
         log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}"
     else
         flash_attn_url="${base_url}/${package_name}"
         log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}"
     fi
-    
+
     log "INFO" "尝试下载: ${flash_attn_url}"
-    
 
     if pip install "${flash_attn_url}"; then
         log "SUCCESS" "Flash Attention预编译包安装成功"
-        
 
         if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
             log "SUCCESS" "Flash Attention导入测试成功"
-
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
             return 0
         else
@@ -2364,225 +2551,304 @@ install_flash_attn() {
     else
         log "WARN" "预编译包安装失败，尝试从源码安装..."
     fi
-    
 
     log "INFO" "准备从源码安装Flash Attention..."
-    
 
     log "INFO" "安装ninja构建工具..."
     pip uninstall -y ninja && pip install ninja
-    
 
     log "INFO" "设置编译环境变量，使用${MAX_JOBS}个编译线程..."
     export MAX_JOBS="$MAX_JOBS"
-    
 
-    if [ $USE_NUMA -eq 1 ]; then
-        log "INFO" "启用NUMA优化..."
-        export USE_NUMA=1
-    fi
-    
+    # 克隆并编译
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir" || {
+        log "ERROR" "无法创建临时目录"
+        return 1
+    }
 
-    log "INFO" "开始编译安装Flash Attention..."
-    
-
-    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-
-        log "INFO" "使用代理从源码安装Flash Attention..."
-        
-
-        local temp_dir=$(mktemp -d)
-        cd "$temp_dir" || {
-            log "ERROR" "无法创建临时目录"
+    if git clone https://github.com/Dao-AILab/flash-attention.git; then
+        cd flash-attention || {
+            log "ERROR" "无法进入flash-attention目录"
             return 1
         }
-        
 
-        log "INFO" "克隆Flash Attention仓库..."
-        if git clone "${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention.git"; then
-            cd flash-attention || {
-                log "ERROR" "无法进入flash-attention目录"
-                return 1
-            }
-            
-
-            log "INFO" "从源码安装Flash Attention..."
-            if pip install -e .; then
-                log "SUCCESS" "Flash Attention从源码安装成功"
-                
-
-                if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                    log "SUCCESS" "Flash Attention导入测试成功"
-
-                    FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
-                    cd "$INSTALL_DIR"
-                    rm -rf "$temp_dir"
-                    return 0
-                else
-                    log "WARN" "Flash Attention安装成功但导入失败"
-
-                    FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
-                    cd "$INSTALL_DIR"
-                    rm -rf "$temp_dir"
-                    return 1
-                fi
-            else
-                log "ERROR" "Flash Attention从源码安装失败"
-
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
-                cd "$INSTALL_DIR"
-                rm -rf "$temp_dir"
-                return 1
-            fi
+        log "INFO" "使用ninja编译并安装..."
+        if python setup.py install --use_ninja; then
+            log "SUCCESS" "Flash Attention从源码编译安装成功"
+            return 0
         else
-            log "ERROR" "克隆Flash Attention仓库失败"
-
-            FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
-            cd "$INSTALL_DIR"
-            rm -rf "$temp_dir"
+            log "ERROR" "Flash Attention从源码编译安装失败"
             return 1
         fi
     else
-
-        if pip install flash-attn --no-build-isolation; then
-            log "SUCCESS" "Flash Attention从源码安装成功"
-            
-
-            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                log "SUCCESS" "Flash Attention导入测试成功"
-
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                return 0
-            else
-                log "WARN" "Flash Attention安装成功但导入失败"
-
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                return 1
-            fi
-        else
-            log "ERROR" "Flash Attention从源码安装失败"
-
-            FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-            return 1
-        fi
+        log "ERROR" "克隆Flash Attention仓库失败"
+        return 1
     fi
 }
+
+# 验证conda安装路径并修复环境
+validate_conda_path() {
+    local expected_path="$1"
+    local detected_path=$(which conda 2>/dev/null)
+    
+    echo -e "${YELLOW}验证conda安装路径...${NC}"
+    echo -e "${YELLOW}预期路径: $expected_path/bin/conda${NC}"
+    
+    if [ -z "$detected_path" ]; then
+        echo -e "${RED}× 无法在PATH中找到conda${NC}"
+        # 添加到当前PATH
+        export PATH="$expected_path/bin:$PATH"
+        echo -e "${YELLOW}已添加 $expected_path/bin 到当前PATH${NC}"
+    elif [ "$detected_path" != "$expected_path/bin/conda" ]; then
+        echo -e "${YELLOW}检测到的conda路径与预期不符: $detected_path${NC}"
+        
+        # 修复bashrc中的路径
+        for bashrc in "/root/.bashrc" "/home/$non_root_user/.bashrc"; do
+            if [ -f "$bashrc" ]; then
+                echo -e "${YELLOW}修正 $bashrc 中的conda路径引用${NC}"
+                sed -i -E "s|^export PATH=.*conda.*:|export PATH=$expected_path/bin:\$PATH:|g" "$bashrc"
+                sed -i -E "s|^[.] \".*conda/etc/profile.d/conda.sh\"$|. \"$expected_path/etc/profile.d/conda.sh\"|g" "$bashrc"
+            fi
+        done
+        
+        # 重新添加到PATH
+        export PATH="$expected_path/bin:$PATH"
+        echo -e "${GREEN}✓ conda路径已修正${NC}"
+    else
+        echo -e "${GREEN}✓ conda路径正确: $detected_path${NC}"
+    fi
+}
+
 
 # 检查Git镜像站点
 check_best_github_site() {
-    log "INFO" "检查最佳GitHub镜像站点..."
+    log "INFO" "检查GitHub连接配置..."
     
-
-    if [ -f "clone.sh" ]; then
-        log "INFO" "运行GitHub镜像站点测试..."
-
-        bash clone.sh >/dev/null 2>&1
+    # 根据用户选择设置代理
+    if [ $USE_GHPROXY -eq 1 ]; then
+        log "INFO" "使用国内代理服务加速GitHub访问"
+        log "SUCCESS" "已配置代理服务器: $GHPROXY_URL"
         
+        # 如果存在.gitmodules文件，则修改其中的URL
+        if [ -f ".gitmodules" ]; then
+            log "INFO" "为git子模块添加代理前缀"
+            sed -i.bak "s|https://github.com|${GHPROXY_URL}/https://github.com|g" .gitmodules
+            log "SUCCESS" "已为子模块添加代理前缀"
+        fi
+        
+        # 配置git全局代理
+        log "DEBUG" "配置git全局代理设置"
+        git config --global url."${GHPROXY_URL}/https://github.com/".insteadOf "https://github.com/"
+    else
+        log "INFO" "将直接连接GitHub，不使用代理"
+    fi
+    
+    return 0
+}
 
-        if [ -f "mirror_test/best_site.env" ]; then
-            source mirror_test/best_site.env
-            log "SUCCESS" "找到最佳GitHub镜像站点: $BEST_GITHUB_SITE"
-            
-
-            if [ "$IS_PROXY" = "1" ]; then
-                GITHUB_PREFIX="https://${BEST_GITHUB_SITE}/https://github.com/"
-                log "INFO" "使用代理镜像: $BEST_GITHUB_SITE"
-            else
-                GITHUB_PREFIX="https://${BEST_GITHUB_SITE}/"
-                log "INFO" "使用直连镜像: $BEST_GITHUB_SITE"
-            fi
+# 安装Python依赖
+install_python_deps() {
+    echo -e "${BLUE}[步骤 10] 安装Python依赖${NC}"
+    
+    cd "$INSTALL_DIR" || {
+        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
+        return 1
+    }
+    
+    echo -e "${YELLOW}安装Python依赖...${NC}"
+    
+    # 查找requirements.txt文件
+    if [ -f "requirements.txt" ]; then
+        echo -e "${YELLOW}找到requirements.txt，开始安装依赖...${NC}"
+        
+        # 使用pip安装依赖
+        if pip install -r requirements.txt; then
+            echo -e "${GREEN}✓ Python依赖安装成功${NC}"
+            return 0
         else
-            log "WARN" "未找到GitHub镜像站点测试结果，使用默认站点"
-            GITHUB_PREFIX="https://github.com/"
+            echo -e "${RED}× Python依赖安装失败${NC}"
+            return 1
         fi
     else
-        log "WARN" "未找到clone.sh脚本，使用默认GitHub站点"
-        GITHUB_PREFIX="https://github.com/"
+        echo -e "${YELLOW}未找到requirements.txt，尝试安装基本依赖...${NC}"
+        
+        # 安装基本依赖
+        if pip install numpy requests tqdm transformers huggingface_hub; then
+            echo -e "${GREEN}✓ 基本Python依赖安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× 基本Python依赖安装失败${NC}"
+            return 1
+        fi
     fi
 }
 
-# 检测IP
-is_china_ip() {
-    log "INFO" "检测IP地理位置..."
+# 编译和构建所需库
+build_libraries() {
+    log "INFO" "编译和构建所需库"
     
-
-    local ip_services=(
-        "https://api.myip.la/en?json"
-        "https://ipapi.co/json/"
-        "https://ip.useragentinfo.com/json"
-    )
-    
-    local is_china=0
-    local country_code=""
-    local ip_address=""
-    
-    for service in "${ip_services[@]}"; do
-        local result=$(curl -s --connect-timeout 5 "$service" 2>/dev/null)
-        
-
-        if [ -n "$result" ]; then
-
-            if echo "$result" | grep -qi "China\|CN"; then
-                is_china=1
-                country_code="CN"
-                ip_address=$(echo "$result" | grep -o '"ip":"[^"]*"' | head -1 | cut -d'"' -f4)
-                if [ -z "$ip_address" ]; then
-                    ip_address=$(echo "$result" | grep -o '"ip":[^,]*' | head -1 | cut -d':' -f2 | tr -d ' "')
-                fi
-                break
-            elif echo "$result" | grep -q "country_code\|countryCode"; then
-                country_code=$(echo "$result" | grep -o '"country_code":"[^"]*"' | cut -d'"' -f4)
-                if [ -z "$country_code" ]; then
-                    country_code=$(echo "$result" | grep -o '"countryCode":"[^"]*"' | cut -d'"' -f4)
-                fi
-                
-                ip_address=$(echo "$result" | grep -o '"ip":"[^"]*"' | head -1 | cut -d'"' -f4)
-                if [ -z "$ip_address" ]; then
-                    ip_address=$(echo "$result" | grep -o '"ip":[^,]*' | head -1 | cut -d':' -f2 | tr -d ' "')
-                fi
-                
-                if [ "$country_code" = "CN" ]; then
-                    is_china=1
-                    break
-                elif [ -n "$country_code" ]; then
-                    break
-                fi
-            fi
-        fi
-    done
-    
-
-    if [ -z "$country_code" ]; then
-        log "WARN" "无法通过API检测IP地理位置，尝试网络延迟测试..."
-        
-
-        local cn_site="baidu.com"
-        local global_site="google.com"
-        
-        local cn_time=$(ping -c 3 $cn_site 2>/dev/null | grep "avg" | awk -F'/' '{print $5}' || echo 999)
-        local global_time=$(ping -c 3 $global_site 2>/dev/null | grep "avg" | awk -F'/' '{print $5}' || echo 999)
-        
-        # 修复比较逻辑，确保是数值比较
-        if [ ! -z "$cn_time" ] && [ ! -z "$global_time" ] && (( $(echo "$cn_time < $global_time" | bc -l 2>/dev/null || echo 0) )); then
-            log "DEBUG" "国内网站延迟($cn_time ms)低于国际网站($global_time ms)，可能位于中国网络环境"
-            is_china=1
-        else
-            log "DEBUG" "国际网站延迟($global_time ms)低于国内网站($cn_time ms)，可能位于国际网络环境"
-            is_china=0
-        fi
-    fi
-    
-    if [ $is_china -eq 1 ]; then
-        log "INFO" "检测到中国IP地址: $ip_address"
-        return 0
+    # 检查llama.cpp子模块是否已正确注册
+    if [ -d "third_party/llama.cpp" ] && [ -f "third_party/llama.cpp/CMakeLists.txt" ]; then
+        log "SUCCESS" "llama.cpp子模块已正确注册，跳过构建"
     else
-        log "INFO" "检测到非中国IP地址: $ip_address (国家代码: $country_code)"
+        log "ERROR" "llama.cpp子模块未正确注册，请检查子模块初始化"
         return 1
     fi
+    
+    # 1. 更新libstdc++6
+    log "INFO" "更新libstdc++6"
+    
+    if ! command_exists add-apt-repository; then
+        log "WARN" "add-apt-repository命令不存在，尝试安装..."
+        DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+    fi
+    
+    if command_exists add-apt-repository; then
+        if add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
+           DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+           DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade libstdc++6; then
+            log "SUCCESS" "libstdc++6更新成功"
+        else
+            log "ERROR" "libstdc++6更新失败"
+            log "WARN" "将继续安装过程，但可能影响某些运行时功能"
+        fi
+    else
+        log "ERROR" "无法安装add-apt-repository工具，跳过libstdc++6更新"
+        log "WARN" "将继续安装过程，但可能影响某些运行时功能"
+    fi
+    
+    # 2. 安装libstdcxx-ng
+    log "INFO" "安装libstdcxx-ng"
+    if retry_command_with_logging "conda install -c conda-forge libstdcxx-ng -y" 300; then
+        log "SUCCESS" "libstdcxx-ng安装成功"
+    else
+        log "ERROR" "libstdcxx-ng安装失败"
+        log "WARN" "将继续安装过程，但可能影响某些运行时功能"
+    fi
+    
+    return 0
+}
+
+# 安装KTransformers
+install_ktransformers() {
+    log "INFO" "安装KTransformers"
+    
+    if [ ! -d "$INSTALL_DIR" ]; then
+        log "ERROR" "目录 $INSTALL_DIR 不存在"
+        return 1
+    fi
+    
+    cd "$INSTALL_DIR" || {
+        log "ERROR" "无法进入 $INSTALL_DIR 目录"
+        return 1
+    }
+    
+    # 首先尝试使用make
+    if ! command_exists make; then
+        log "ERROR" "make命令不存在，尝试安装..."
+        DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential
+        
+        if ! command_exists make; then
+            log "ERROR" "无法安装make工具，跳过make dev_install步骤"
+            log "WARN" "尝试使用pip直接安装..."
+            
+            if pip install -e .; then
+                log "SUCCESS" "使用pip安装成功"
+                return 0
+            else
+                log "ERROR" "使用pip安装也失败"
+                log "WARN" "您可能需要手动执行安装:"
+                log "WARN" "1. 安装build-essential"
+                log "WARN" "2. 进入 $INSTALL_DIR 目录"
+                log "WARN" "3. 执行 make dev_install 或 pip install -e ."
+                return 1
+            fi
+        fi
+    fi
+    
+    log "INFO" "开始执行make dev_install（这可能需要一些时间）..."
+    log "INFO" "编译过程中可能会显示一些警告，这是正常现象"
+    
+    local make_output=""
+    local make_error_file="$INSTALL_DIR/make_error.log"
+    
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
+    
+    if make_output=$(make dev_install 2>&1); then
+        log "SUCCESS" "make dev_install执行成功"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
+        return 0
+    else
+        local exit_code=$?
+        log "ERROR" "make dev_install执行失败 (错误码: $exit_code)"
+        log "WARN" "编译错误已保存到 $make_error_file"
+        
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行失败 (错误码: $exit_code)" >> "$make_error_file"
+        echo "==================== 错误输出 ====================" >> "$make_error_file"
+        echo "$make_output" >> "$make_error_file"
+        echo "==================================================" >> "$make_error_file"
+        
+        log "WARN" "错误摘要:"
+        echo "$make_output" | tail -n 15
+        
+        log "WARN" "尝试使用pip直接安装..."
+        if pip install -e .; then
+            log "SUCCESS" "使用pip安装成功"
+            return 0
+        else
+            log "ERROR" "使用pip安装也失败"
+            log "WARN" "将继续安装过程，但功能可能不完整"
+            return 1
+        fi
+    fi
+}
+
+# 完成消息
+completion_message() {
+    echo -e "\n${BLUE}===== 安装完成信息 =====${NC}\n"
+    
+    echo -e "${GREEN}✓ 系统检查:${NC}"
+    echo -e "  ○ 目录: ${GREEN}${INSTALL_DIR}${NC}"
+    
+    if command_exists python; then
+        python_version=$(python --version 2>&1)
+        echo -e "  ○ Python: ${GREEN}$python_version${NC}"
+    else
+        echo -e "  ○ Python: ${YELLOW}未找到${NC}"
+    fi
+    
+    if command_exists conda; then
+        conda_version=$(conda --version 2>&1)
+        echo -e "  ○ Conda: ${GREEN}${conda_version}${NC}"
+    else
+        echo -e "  ○ Conda: ${YELLOW}未找到${NC}"
+    fi
+    
+    if command_exists nvcc; then
+        cuda_version=$(nvcc --version | grep "release" | awk '{print $6}' | sed 's/,//')
+        echo -e "  ○ CUDA: ${GREEN}${cuda_version}${NC}"
+    else
+        echo -e "  ○ CUDA: ${YELLOW}未找到${NC}"
+    fi
+    
+    if [ $USE_NUMA -eq 1 ]; then
+        echo -e "  ○ USE_NUMA环境变量: ${GREEN}已启用${NC}"
+    else
+        echo -e "  ○ USE_NUMA环境变量: ${YELLOW}未启用${NC}"
+    fi
+    
+    echo -e "  ○ 编译最大线程数: ${GREEN}${MAX_JOBS}${NC}"
+    
+    echo -e "\n${GREEN}✓ KTransformers安装完成!${NC}"
+    echo -e "${YELLOW}您可以通过以下命令进入环境:${NC}"
+    echo -e "${BLUE}  conda activate ${ENV_NAME}${NC}"
+    echo -e "${YELLOW}然后运行示例:${NC}"
+    echo -e "${BLUE}  cd ${INSTALL_DIR}/examples${NC}"
+    echo -e "${BLUE}  python run_demo.py${NC}"
+    echo -e "\n${GREEN}祝您使用愉快!${NC}\n"
 }
 
 # 主函数
@@ -2602,7 +2868,7 @@ main() {
     fi
     
     # 显示安装脚本版本信息
-    echo -e "${PURPLE}KTransformers 安装脚本 - 调试增强版${NC}"
+    echo -e "${PURPLE}KTransformers 安装脚本${NC}"
     echo -e "${PURPLE}当前时间: $(date)${NC}\n"
     
     # 检查并安装必要的工具
@@ -2617,7 +2883,7 @@ main() {
     # 检查并安装构建工具
     check_build_tools
     
-    # 检测CUDA版本 (只检测CUDA，不检测PyTorch)
+    # 检测CUDA版本
     detect_pytorch_cuda_version
     
     # 用于跟踪安装状态的变量
@@ -2625,69 +2891,112 @@ main() {
     
     # 执行各个步骤
     check_root || exit 1
+    
     install_git || exit 1
     
-    # 安装conda和创建环境
-    install_conda || { echo -e "${RED}Conda安装失败，无法继续安装${NC}"; exit 1; }
-    create_conda_env || { echo -e "${RED}Conda环境创建失败，无法继续安装${NC}"; exit 1; }
-    
     # 克隆仓库，添加更详细的错误处理
-    if ! clone_repository; then
-        log "ERROR" "仓库克隆失败，请检查网络连接和目录权限"
-        log "INFO" "您可以尝试手动克隆仓库:"
-        log "INFO" "  git clone https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR"
-        log "INFO" "或者使用ghfast.top代理:"
-        log "INFO" "  git clone https://ghfast.top/https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR"
+    if ! clone_repo; then
+        echo -e "${RED}× 仓库克隆失败，请检查网络连接和目录权限${NC}"
+        echo -e "${YELLOW}您可以尝试手动克隆仓库:${NC}"
+        echo -e "  ${BLUE}git clone https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}"
+        if [ $USE_GHPROXY -eq 1 ]; then
+            echo -e "或者使用ghfast.top代理:"
+            echo -e "  ${BLUE}git clone ${GHPROXY_URL}/https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}"
+        fi
         exit 1
     fi
     
-    # 激活环境
-    activate_conda_env || install_status=1
+    # 安装conda和创建环境 - 关键步骤，失败直接退出
+    install_conda || { echo -e "${RED}× Conda安装失败，无法继续安装${NC}"; exit 1; }
+
+    create_conda_env || { echo -e "${RED}× Conda环境创建失败，无法继续安装${NC}"; exit 1; }
     
-    # 初始化Git子模块
+    # 激活conda环境
+    activate_conda_env || { echo -e "${RED}× Conda环境激活失败，无法继续安装${NC}"; exit 1; }
+    
+    # 安装PyTorch
+    install_pytorch || { echo -e "${RED}× PyTorch安装失败，可能导致功能受限${NC}"; install_status=1; }
+    
+    # 初始化git子模块
     init_git_submodules || install_status=1
     
-    # 更新Git子模块
-    update_git_submodules_with_progress || install_status=1
-    
-    # 安装libnuma和设置环境变量
+    # 添加缺失的步骤
     install_libnuma || install_status=1
-    set_use_numa
+    set_use_numa || install_status=1
     
-    # 安装PyTorch (GPU版本)
-    install_pytorch || install_status=1
+    # 编译和构建所需库
+    build_libraries || install_status=1
     
-    # 先安装flash_attn
-    echo -e "${BLUE}[步骤 10] 安装Flash Attention${NC}"
+    # 安装 Flash Attention
+    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}"
     install_flash_attn || install_status=1
     
-    # 安装flashinfer
-    echo -e "${BLUE}[步骤 11] 安装FlashInfer${NC}"
+    # 安装 FlashInfer
+    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}"
     download_flashinfer || install_status=1
     
-    # 编译安装KTransformers
-    make_dev_install || install_status=1
+    # 安装Python依赖
+    install_python_deps || install_status=1
     
-    # 安装其他依赖
-    update_libstdcpp6 || install_status=1
-    install_libstdcxx_ng || install_status=1
-    
-    # 检查安装的版本
-    check_versions
+    # 安装KTransformers
+    install_ktransformers || install_status=1
     
     # 安装完成
     if [ $install_status -eq 0 ]; then
-        log "SUCCESS" "安装完成！"
-        log "INFO" "现在你可以使用 ktransformers 了！"
-        log "INFO" "启动命令: cd $INSTALL_DIR && conda activate $ENV_NAME && python -m ktransformers"
+        echo -e "${GREEN}✓ 安装完成！${NC}"
+        
+        # 如果当前是root用户，将workspace所有权交给非root用户
+        if [ "$(id -u)" -eq 0 ]; then
+            # 查找适合的非root用户
+            local non_root_user=""
+            non_root_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+            if [ -z "$non_root_user" ]; then
+                non_root_user=$SUDO_USER
+            fi
+            
+            if [ -n "$non_root_user" ] && [ "$non_root_user" != "root" ]; then
+                echo -e "${YELLOW}将workspace所有权交给用户: $non_root_user${NC}"
+                
+                # 确保workspace存在
+                if [ -d "$INSTALL_DIR" ]; then
+                    chown -R $non_root_user:$non_root_user "$INSTALL_DIR"
+                    echo -e "${GREEN}✓ 已更改workspace所有权${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将workspace所有权交给: $non_root_user" >> "$LOG_FILE"
+                else
+                    echo -e "${YELLOW}警告: workspace目录不存在${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                fi
+                
+                # 也更改日志文件的所有权
+                if [ -f "$LOG_FILE" ]; then
+                    chown $non_root_user:$non_root_user "$LOG_FILE"
+                fi
+                
+                # 更改激活脚本的所有权
+                if [ -f "activate_env.sh" ]; then
+                    chown $non_root_user:$non_root_user "activate_env.sh"
+                fi
+            else
+                echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
+            fi
+        fi
+        
+        completion_message
     else
-        log "WARN" "安装过程中有部分步骤失败，请查看详细日志"
-        log "INFO" "你可以尝试修复问题后重新运行脚本"
+        echo -e "${YELLOW}[WARN] 安装过程中有部分步骤失败，请查看详细日志${NC}"
+        echo -e "${YELLOW}[INFO] 你可以尝试修复问题后重新运行脚本${NC}"
     fi
 }
 
 # 运行主函数
 main "$@"
+
+
+
+
+
+
 
 
 
