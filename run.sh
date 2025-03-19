@@ -1120,14 +1120,23 @@ install_conda() {
             # 确保目标目录不存在或为空
             if [ -d "$system_conda_dir" ]; then
                 echo -e "${YELLOW}目标目录已存在，正在备份...${NC}"
-                mv $system_conda_dir ${system_conda_dir}_backup_$(date +%Y%m%d%H%M%S)
+                mv "$system_conda_dir" "${system_conda_dir}_backup_$(date +%Y%m%d%H%M%S)"
             fi
             
             # 创建目标目录的父目录（如果需要）
-            mkdir -p $(dirname $system_conda_dir)
+            mkdir -p $(dirname "$system_conda_dir")
             
-            # 复制整个conda目录
-            cp -r $conda_base_dir $system_conda_dir
+            # 完全复制conda目录结构
+            cp -a "$conda_base_dir/." "$system_conda_dir/"
+            
+            # 删除旧的软链接和创建新的软链接
+            rm -f "$system_conda_dir/bin/conda" 2>/dev/null
+            ln -sf "$system_conda_dir/condabin/conda" "$system_conda_dir/bin/conda"
+            
+            # 更新所有脚本中的路径
+            find "$system_conda_dir" -type f -name "*.sh" -o -name "*.py" | xargs grep -l "$conda_base_dir" | while read file; do
+                sed -i "s|$conda_base_dir|$system_conda_dir|g" "$file" 2>/dev/null
+            done
             
             # 更新权限
             if [ "$non_root_user" != "root" ]; then
@@ -1157,17 +1166,17 @@ EOF
             # 更新当前PATH
             export PATH="$system_conda_dir/bin:$PATH"
             
-            # 修改文件归属
-            if [ "$non_root_user" != "root" ]; then
-                echo -e "${YELLOW}更新文件归属为用户 $non_root_user${NC}"
-                chown -R $non_root_user:$non_root_user $system_conda_dir
-            fi
-            
             # 初始化conda
             if command_exists conda; then
                 echo -e "${YELLOW}正在初始化conda...${NC}"
-                conda init bash
+                
+                # 使用正确的路径初始化conda
+                "$system_conda_dir/bin/conda" init bash
+                
                 echo -e "${GREEN}✓ conda初始化成功${NC}"
+                
+                # 验证并修复conda路径
+                validate_conda_path "$system_conda_dir"
                 
                 if [ $DEBUG_MODE -eq 1 ]; then
                     conda_version=$(conda --version)
@@ -1182,25 +1191,6 @@ EOF
             fi
         else
             echo -e "${GREEN}✓ conda已位于系统目录 $system_conda_dir${NC}"
-        fi
-        
-        # 确保conda在PATH中并正常工作
-        if command_exists conda; then
-            echo -e "${GREEN}✓ conda设置成功: $(which conda)${NC}"
-            echo -e "${YELLOW}正在初始化conda...${NC}"
-            
-            # 初始化conda
-            conda init bash
-            echo -e "${GREEN}✓ conda初始化成功${NC}"
-            
-            if [ $DEBUG_MODE -eq 1 ]; then
-                conda_version=$(conda --version)
-                echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已设置: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
-            fi
-            return 0
-        else
-            echo -e "${RED}× conda路径设置失败${NC}"
         fi
     fi
     
@@ -1254,7 +1244,10 @@ EOF
     # 初始化conda
     if command_exists conda; then
         echo -e "${YELLOW}正在初始化conda...${NC}"
-        conda init bash
+        
+        # 使用正确的路径初始化conda
+        "$system_conda_dir/bin/conda" init bash
+        
         echo -e "${GREEN}✓ conda初始化成功${NC}"
         
         if [ $DEBUG_MODE -eq 1 ]; then
@@ -1569,7 +1562,7 @@ detect_pytorch_cuda_version() {
 
 # 安装并验证PyTorch
 install_pytorch() {
-    echo -e "${BLUE}[步骤 9] 安装GPU版本PyTorch${NC}"
+    echo -e "${BLUE}[步骤 6] 安装GPU版本PyTorch${NC}"
     
     if ! command_exists pip; then
         echo -e "${YELLOW}pip命令不存在，尝试安装...${NC}"
@@ -2564,6 +2557,40 @@ install_flash_attn() {
     fi
 }
 
+# 验证conda安装路径并修复环境
+validate_conda_path() {
+    local expected_path="$1"
+    local detected_path=$(which conda 2>/dev/null)
+    
+    echo -e "${YELLOW}验证conda安装路径...${NC}"
+    echo -e "${YELLOW}预期路径: $expected_path/bin/conda${NC}"
+    
+    if [ -z "$detected_path" ]; then
+        echo -e "${RED}× 无法在PATH中找到conda${NC}"
+        # 添加到当前PATH
+        export PATH="$expected_path/bin:$PATH"
+        echo -e "${YELLOW}已添加 $expected_path/bin 到当前PATH${NC}"
+    elif [ "$detected_path" != "$expected_path/bin/conda" ]; then
+        echo -e "${YELLOW}检测到的conda路径与预期不符: $detected_path${NC}"
+        
+        # 修复bashrc中的路径
+        for bashrc in "/root/.bashrc" "/home/$non_root_user/.bashrc"; do
+            if [ -f "$bashrc" ]; then
+                echo -e "${YELLOW}修正 $bashrc 中的conda路径引用${NC}"
+                sed -i -E "s|^export PATH=.*conda.*:|export PATH=$expected_path/bin:\$PATH:|g" "$bashrc"
+                sed -i -E "s|^[.] \".*conda/etc/profile.d/conda.sh\"$|. \"$expected_path/etc/profile.d/conda.sh\"|g" "$bashrc"
+            fi
+        done
+        
+        # 重新添加到PATH
+        export PATH="$expected_path/bin:$PATH"
+        echo -e "${GREEN}✓ conda路径已修正${NC}"
+    else
+        echo -e "${GREEN}✓ conda路径正确: $detected_path${NC}"
+    fi
+}
+
+
 # 检查Git镜像站点
 check_best_github_site() {
     log "INFO" "检查GitHub连接配置..."
@@ -2842,6 +2869,9 @@ main() {
     # 激活conda环境
     activate_conda_env || { echo -e "${RED}× Conda环境激活失败，无法继续安装${NC}"; exit 1; }
     
+    # 安装PyTorch
+    install_pytorch || { echo -e "${RED}× PyTorch安装失败，可能导致功能受限${NC}"; install_status=1; }
+    
     # 初始化git子模块
     init_git_submodules || install_status=1
     
@@ -2878,6 +2908,7 @@ main() {
 
 # 运行主函数
 main "$@"
+
 
 
 
