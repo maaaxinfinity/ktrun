@@ -1135,13 +1135,51 @@ install_conda() {
                 chown -R $non_root_user:$non_root_user $system_conda_dir
             fi
             
-            # 创建系统级环境变量
+            # 创建系统级环境变量 - 所有用户都可以使用
             echo -e "${YELLOW}配置系统级conda环境变量...${NC}"
-            echo "export PATH=$system_conda_dir/bin:\$PATH" > /etc/profile.d/conda.sh
+            cat > /etc/profile.d/conda.sh << EOF
+# 添加conda到系统PATH
+export PATH="$system_conda_dir/bin:\$PATH"
+
+# 为了兼容不同的shell，添加conda初始化
+if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$system_conda_dir/etc/profile.d/conda.sh"
+fi
+EOF
             chmod +x /etc/profile.d/conda.sh
             
-            # 更新当前会话的PATH
+            # 为bash用户添加conda自动补全
+            if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
+                echo ". $system_conda_dir/etc/profile.d/conda.sh" > /etc/profile.d/conda_init.sh
+                chmod +x /etc/profile.d/conda_init.sh
+            fi
+            
+            # 更新当前PATH
             export PATH="$system_conda_dir/bin:$PATH"
+            
+            # 修改文件归属
+            if [ "$non_root_user" != "root" ]; then
+                echo -e "${YELLOW}更新文件归属为用户 $non_root_user${NC}"
+                chown -R $non_root_user:$non_root_user $system_conda_dir
+            fi
+            
+            # 初始化conda
+            if command_exists conda; then
+                echo -e "${YELLOW}正在初始化conda...${NC}"
+                conda init bash
+                echo -e "${GREEN}✓ conda初始化成功${NC}"
+                
+                if [ $DEBUG_MODE -eq 1 ]; then
+                    conda_version=$(conda --version)
+                    echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
+                fi
+                return 0
+            else
+                echo -e "${RED}× conda安装失败${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
+                return 1
+            fi
         else
             echo -e "${GREEN}✓ conda已位于系统目录 $system_conda_dir${NC}"
         fi
@@ -1184,9 +1222,25 @@ install_conda() {
     echo -e "${YELLOW}安装conda到系统目录: $system_conda_dir${NC}"
     bash /tmp/miniconda.sh -b -p $system_conda_dir
     
-    # 设置系统环境变量
-    echo "export PATH=$system_conda_dir/bin:\$PATH" > /etc/profile.d/conda.sh
+    # 设置系统环境变量 - 所有用户都可以使用
+    cat > /etc/profile.d/conda.sh << EOF
+# 添加conda到系统PATH
+export PATH="$system_conda_dir/bin:\$PATH"
+
+# 为了兼容不同的shell，添加conda初始化
+if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$system_conda_dir/etc/profile.d/conda.sh"
+fi
+EOF
     chmod +x /etc/profile.d/conda.sh
+    
+    # 为bash用户添加conda自动补全
+    if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
+        echo ". $system_conda_dir/etc/profile.d/conda.sh" > /etc/profile.d/conda_init.sh
+        chmod +x /etc/profile.d/conda_init.sh
+    fi
+    
+    rm -f /tmp/miniconda.sh
     
     # 更新当前PATH
     export PATH="$system_conda_dir/bin:$PATH"
@@ -1214,8 +1268,6 @@ install_conda() {
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
         return 1
     fi
-    
-    rm -f /tmp/miniconda.sh
 }
 
 # 4. 使用conda创建环境
@@ -1714,30 +1766,70 @@ init_git_submodules() {
     fi
 }
 
-# 7. 安装libnuma-dev
+# 7. 安装libnuma库
 install_libnuma() {
-    echo -e "${BLUE}[步骤 7] 安装libnuma-dev${NC}"
-    if DEBIAN_FRONTEND=noninteractive apt-get install -y libnuma-dev; then
-        echo -e "${GREEN}✓ libnuma-dev安装成功${NC}"
+    echo -e "${BLUE}[步骤 7] 安装libnuma库${NC}"
+    
+    # 检查是否已安装
+    if ldconfig -p | grep -q "libnuma.so"; then
+        echo -e "${GREEN}✓ libnuma已安装${NC}"
         return 0
-    else
-        echo -e "${RED}× libnuma-dev安装失败${NC}"
-        return 1
     fi
+    
+    echo -e "${YELLOW}libnuma未安装，尝试安装...${NC}"
+    
+    # 尝试使用apt安装
+    if command_exists apt-get; then
+        echo -e "${YELLOW}使用apt安装libnuma-dev...${NC}"
+        apt-get update && apt-get install -y libnuma-dev
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ libnuma-dev安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× apt安装libnuma-dev失败${NC}"
+        fi
+    fi
+    
+    # 尝试使用yum安装
+    if command_exists yum; then
+        echo -e "${YELLOW}使用yum安装numactl-devel...${NC}"
+        yum install -y numactl-devel
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ numactl-devel安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× yum安装numactl-devel失败${NC}"
+        fi
+    fi
+    
+    # 尝试使用dnf安装
+    if command_exists dnf; then
+        echo -e "${YELLOW}使用dnf安装numactl-devel...${NC}"
+        dnf install -y numactl-devel
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ numactl-devel安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× dnf安装numactl-devel失败${NC}"
+        fi
+    fi
+    
+    echo -e "${RED}× 无法安装libnuma库，请手动安装后再继续${NC}"
+    return 1
 }
 
 # 8. 设置USE_NUMA环境变量
 set_use_numa() {
     echo -e "${BLUE}[步骤 8] 设置USE_NUMA环境变量${NC}"
     
-
     if [ $USE_NUMA -eq 1 ]; then
         export USE_NUMA=1
-        echo -e "${GREEN}✓ 已设置USE_NUMA=1${NC}"
+        echo -e "${GREEN}✓ 已启用USE_NUMA环境变量${NC}"
     else
-        export USE_NUMA=0
-        echo -e "${YELLOW}USE_NUMA环境变量已禁用${NC}"
+        echo -e "${YELLOW}未启用USE_NUMA环境变量${NC}"
     fi
+    
+    return 0
 }
 
 # 9. 下载预编译的flashinfer
@@ -2535,6 +2627,66 @@ install_python_deps() {
     fi
 }
 
+# 编译和构建所需库
+build_libraries() {
+    echo -e "${BLUE}[步骤 9] 编译和构建所需库${NC}"
+    
+    cd "$INSTALL_DIR" || {
+        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
+        return 1
+    }
+    
+    # 检查是否有编译脚本
+    if [ -f "build.sh" ]; then
+        echo -e "${YELLOW}找到build.sh，开始编译...${NC}"
+        
+        # 设置编译环境变量
+        export MAX_JOBS=$MAX_JOBS
+        if [ $USE_NUMA -eq 1 ]; then
+            export USE_NUMA=1
+            echo -e "${YELLOW}已启用USE_NUMA编译选项${NC}"
+        fi
+        
+        # 执行编译
+        if bash build.sh; then
+            echo -e "${GREEN}✓ 库编译成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× 库编译失败${NC}"
+            return 1
+        fi
+    else
+        echo -e "${YELLOW}未找到build.sh，尝试编译第三方库...${NC}"
+        
+        # 尝试编译子模块中的库
+        if [ -d "third_party/llama.cpp" ]; then
+            echo -e "${YELLOW}编译llama.cpp...${NC}"
+            
+            cd third_party/llama.cpp || {
+                echo -e "${RED}× 无法进入llama.cpp目录${NC}"
+                return 1
+            }
+            
+            if [ $USE_NUMA -eq 1 ]; then
+                export USE_NUMA=1
+                echo -e "${YELLOW}已启用USE_NUMA编译选项${NC}"
+            fi
+            
+            if make -j$MAX_JOBS; then
+                echo -e "${GREEN}✓ llama.cpp编译成功${NC}"
+                cd "$INSTALL_DIR" || return 1
+            else
+                echo -e "${RED}× llama.cpp编译失败${NC}"
+                cd "$INSTALL_DIR" || return 1
+                return 1
+            fi
+        fi
+        
+        echo -e "${GREEN}✓ 库构建完成${NC}"
+        return 0
+    fi
+}
+
 # 安装KTransformers
 install_ktransformers() {
     echo -e "${BLUE}[步骤 11] 安装KTransformers${NC}"
@@ -2671,20 +2823,42 @@ main() {
     check_root || exit 1
     install_git || exit 1
     
-    # 克隆仓库
-    clone_repo || install_status=1
+    # 克隆仓库，添加更详细的错误处理
+    if ! clone_repo; then
+        echo -e "${RED}× 仓库克隆失败，请检查网络连接和目录权限${NC}"
+        echo -e "${YELLOW}您可以尝试手动克隆仓库:${NC}"
+        echo -e "  ${BLUE}git clone https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}"
+        if [ $USE_GHPROXY -eq 1 ]; then
+            echo -e "或者使用ghfast.top代理:"
+            echo -e "  ${BLUE}git clone ${GHPROXY_URL}/https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}"
+        fi
+        exit 1
+    fi
     
-    # 安装conda
-    install_conda || install_status=1
-    
-    # 创建conda环境
-    create_conda_env || install_status=1
+    # 安装conda和创建环境 - 关键步骤，失败直接退出
+    install_conda || { echo -e "${RED}× Conda安装失败，无法继续安装${NC}"; exit 1; }
+    create_conda_env || { echo -e "${RED}× Conda环境创建失败，无法继续安装${NC}"; exit 1; }
     
     # 激活conda环境
-    activate_conda_env || install_status=1
+    activate_conda_env || { echo -e "${RED}× Conda环境激活失败，无法继续安装${NC}"; exit 1; }
     
     # 初始化git子模块
     init_git_submodules || install_status=1
+    
+    # 添加缺失的步骤
+    install_libnuma || install_status=1
+    set_use_numa || install_status=1
+    
+    # 编译和构建所需库
+    build_libraries || install_status=1
+    
+    # 安装 Flash Attention
+    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}"
+    install_flash_attn || install_status=1
+    
+    # 安装 FlashInfer
+    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}"
+    download_flashinfer || install_status=1
     
     # 安装Python依赖
     install_python_deps || install_status=1
@@ -2694,16 +2868,17 @@ main() {
     
     # 安装完成
     if [ $install_status -eq 0 ]; then
-        log "SUCCESS" "安装完成！"
+        echo -e "${GREEN}✓ 安装完成！${NC}"
         completion_message
     else
-        log "WARN" "安装过程中有部分步骤失败，请查看详细日志"
-        log "INFO" "你可以尝试修复问题后重新运行脚本"
+        echo -e "${YELLOW}[WARN] 安装过程中有部分步骤失败，请查看详细日志${NC}"
+        echo -e "${YELLOW}[INFO] 你可以尝试修复问题后重新运行脚本${NC}"
     fi
 }
 
 # 运行主函数
 main "$@"
+
 
 
 
