@@ -2098,7 +2098,6 @@ make_dev_install() {
     
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
     
-
     if make_output=$(make dev_install 2>&1); then
         echo -e "${GREEN}✓ make dev_install执行成功${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
@@ -2753,7 +2752,7 @@ install_ktransformers() {
         DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential
         
         if ! command_exists make; then
-            log "ERROR" "无法安装make工具"
+            log "ERROR" "无法安装make工具，跳过make dev_install步骤"
             log "WARN" "尝试使用pip直接安装..."
             
             if pip install -e .; then
@@ -2761,32 +2760,39 @@ install_ktransformers() {
                 return 0
             else
                 log "ERROR" "使用pip安装也失败"
+                log "WARN" "您可能需要手动执行安装:"
+                log "WARN" "1. 安装build-essential"
+                log "WARN" "2. 进入 $INSTALL_DIR 目录"
+                log "WARN" "3. 执行 make dev_install 或 pip install -e ."
                 return 1
             fi
         fi
     fi
     
-    log "INFO" "开始执行make（这可能需要一些时间）..."
+    log "INFO" "开始执行make dev_install（这可能需要一些时间）..."
     log "INFO" "编译过程中可能会显示一些警告，这是正常现象"
     
     local make_output=""
     local make_error_file="$INSTALL_DIR/make_error.log"
     
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make..." > "$make_error_file"
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
     
-    if make_output=$(make 2>&1); then
-        log "SUCCESS" "make执行成功"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make执行成功" >> "$make_error_file"
+    if make_output=$(make dev_install 2>&1); then
+        log "SUCCESS" "make dev_install执行成功"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
         return 0
     else
         local exit_code=$?
-        log "ERROR" "make执行失败 (错误码: $exit_code)"
+        log "ERROR" "make dev_install执行失败 (错误码: $exit_code)"
         log "WARN" "编译错误已保存到 $make_error_file"
         
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make执行失败 (错误码: $exit_code)" >> "$make_error_file"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行失败 (错误码: $exit_code)" >> "$make_error_file"
         echo "==================== 错误输出 ====================" >> "$make_error_file"
         echo "$make_output" >> "$make_error_file"
         echo "==================================================" >> "$make_error_file"
+        
+        log "WARN" "错误摘要:"
+        echo "$make_output" | tail -n 15
         
         log "WARN" "尝试使用pip直接安装..."
         if pip install -e .; then
@@ -2794,6 +2800,7 @@ install_ktransformers() {
             return 0
         else
             log "ERROR" "使用pip安装也失败"
+            log "WARN" "将继续安装过程，但功能可能不完整"
             return 1
         fi
     fi
