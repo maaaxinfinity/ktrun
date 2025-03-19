@@ -1057,7 +1057,7 @@ install_conda() {
             non_root_user=$SUDO_USER
         fi
         if [ -z "$non_root_user" ]; then
-            echo -e "${YELLOW}未找到非root用户，将保持文件归属于root${NC}"
+            echo -e "${YELLOW}未找到非root用户，将使用当前用户${NC}"
             non_root_user="root"
         fi
     else
@@ -1066,43 +1066,75 @@ install_conda() {
     
     echo -e "${YELLOW}检测到用户: $current_user, 目标用户: $non_root_user${NC}"
     
-    # 系统级conda目标路径
-    local system_conda_dir="/usr/local/conda"
-    
-    # 检查常见的用户目录下的conda安装
+    # 检查所有用户的conda安装
     local found_conda=0
     local found_conda_path=""
-    local home_dir="/home/$non_root_user"
+    local all_users=()
     
-    if [ "$non_root_user" = "root" ]; then
-        home_dir="/root"
+    # 获取所有普通用户列表
+    if [ -f "/etc/passwd" ]; then
+        all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+        echo -e "${YELLOW}系统中的普通用户: ${all_users[*]}${NC}"
     fi
     
-    echo -e "${YELLOW}检查用户目录下的conda安装: $home_dir${NC}"
+    # 添加当前用户和非root用户到检查列表
+    all_users+=("$current_user")
+    if [ "$non_root_user" != "$current_user" ] && [ "$non_root_user" != "root" ]; then
+        all_users+=("$non_root_user")
+    fi
     
-    # 优先检查用户主目录下的conda安装
-    local possible_conda_paths=(
-        "$home_dir/miniconda3/bin/conda"
-        "$home_dir/anaconda3/bin/conda"
-        "$home_dir/conda/bin/conda"
-        "/usr/local/miniconda3/bin/conda"
-        "/usr/local/anaconda3/bin/conda"
-        "/usr/local/conda/bin/conda"
-        "/opt/conda/bin/conda"
-    )
+    # 去重
+    all_users=($(echo "${all_users[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
     
-    # 先检查命令是否已在PATH中
+    echo -e "${YELLOW}将检查以下用户的conda安装: ${all_users[*]}${NC}"
+    
+    # 先检查当前环境中是否有conda命令
     if command_exists conda; then
         found_conda=1
         found_conda_path=$(which conda)
-        echo -e "${GREEN}✓ conda已在PATH中: $found_conda_path${NC}"
+        echo -e "${GREEN}✓ 当前环境中找到conda: $found_conda_path${NC}"
     else
-        # 检查可能的安装路径
-        for conda_path in "${possible_conda_paths[@]}"; do
+        # 检查所有用户的可能conda安装路径
+        for user in "${all_users[@]}"; do
+            local home_dir
+            
+            if [ "$user" = "root" ]; then
+                home_dir="/root"
+            else
+                home_dir="/home/$user"
+            fi
+            
+            echo -e "${YELLOW}检查用户 $user 的conda安装 ($home_dir)${NC}"
+            
+            local possible_conda_paths=(
+                "$home_dir/miniconda3/bin/conda"
+                "$home_dir/anaconda3/bin/conda"
+                "$home_dir/conda/bin/conda"
+            )
+            
+            for conda_path in "${possible_conda_paths[@]}"; do
+                if [ -f "$conda_path" ]; then
+                    found_conda=1
+                    found_conda_path=$conda_path
+                    echo -e "${GREEN}✓ 在用户 $user 目录找到conda: ${conda_path}${NC}"
+                    break 2
+                fi
+            done
+        done
+        
+        # 检查系统目录
+        local system_conda_paths=(
+            "/usr/local/miniconda3/bin/conda"
+            "/usr/local/anaconda3/bin/conda"
+            "/usr/local/conda/bin/conda"
+            "/opt/conda/bin/conda"
+        )
+        
+        for conda_path in "${system_conda_paths[@]}"; do
             if [ -f "$conda_path" ]; then
                 found_conda=1
                 found_conda_path=$conda_path
-                echo -e "${YELLOW}找到conda但未在PATH中: ${conda_path}${NC}"
+                echo -e "${GREEN}✓ 在系统目录找到conda: ${conda_path}${NC}"
                 break
             fi
         done
@@ -1113,89 +1145,41 @@ install_conda() {
         local conda_base_dir=$(dirname $(dirname "$found_conda_path"))
         echo -e "${GREEN}✓ 找到conda安装目录: $conda_base_dir${NC}"
         
-        # 检查是否需要移动到系统目录
-        if [ "$conda_base_dir" != "$system_conda_dir" ]; then
-            echo -e "${YELLOW}正在将conda从 $conda_base_dir 移动到 $system_conda_dir...${NC}"
+        # 更新所有用户的PATH设置
+        update_all_users_path "$conda_base_dir"
+        
+        # 确保当前环境中conda可用
+        export PATH="$conda_base_dir/bin:$PATH"
+        
+        # 初始化conda
+        if command_exists conda; then
+            echo -e "${GREEN}✓ conda已可用${NC}"
             
-            # 确保目标目录不存在或为空
-            if [ -d "$system_conda_dir" ]; then
-                echo -e "${YELLOW}目标目录已存在，正在备份...${NC}"
-                mv "$system_conda_dir" "${system_conda_dir}_backup_$(date +%Y%m%d%H%M%S)"
+            # 显示conda版本
+            if [ $DEBUG_MODE -eq 1 ]; then
+                conda_version=$(conda --version)
+                echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
             fi
-            
-            # 创建目标目录的父目录（如果需要）
-            mkdir -p $(dirname "$system_conda_dir")
-            
-            # 完全复制conda目录结构
-            cp -a "$conda_base_dir/." "$system_conda_dir/"
-            
-            # 删除旧的软链接和创建新的软链接
-            rm -f "$system_conda_dir/bin/conda" 2>/dev/null
-            ln -sf "$system_conda_dir/condabin/conda" "$system_conda_dir/bin/conda"
-            
-            # 更新所有脚本中的路径
-            find "$system_conda_dir" -type f -name "*.sh" -o -name "*.py" | xargs grep -l "$conda_base_dir" | while read file; do
-                sed -i "s|$conda_base_dir|$system_conda_dir|g" "$file" 2>/dev/null
-            done
-            
-            # 更新权限
-            if [ "$non_root_user" != "root" ]; then
-                echo -e "${YELLOW}更新文件归属为用户 $non_root_user${NC}"
-                chown -R $non_root_user:$non_root_user $system_conda_dir
-            fi
-            
-            # 创建系统级环境变量 - 所有用户都可以使用
-            echo -e "${YELLOW}配置系统级conda环境变量...${NC}"
-            cat > /etc/profile.d/conda.sh << EOF
-# 添加conda到系统PATH
-export PATH="$system_conda_dir/bin:\$PATH"
-
-# 为了兼容不同的shell，添加conda初始化
-if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
-    . "$system_conda_dir/etc/profile.d/conda.sh"
-fi
-EOF
-            chmod +x /etc/profile.d/conda.sh
-            
-            # 为bash用户添加conda自动补全
-            if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
-                echo ". $system_conda_dir/etc/profile.d/conda.sh" > /etc/profile.d/conda_init.sh
-                chmod +x /etc/profile.d/conda_init.sh
-            fi
-            
-            # 更新当前PATH
-            export PATH="$system_conda_dir/bin:$PATH"
-            
-            # 初始化conda
-            if command_exists conda; then
-                echo -e "${YELLOW}正在初始化conda...${NC}"
-                
-                # 使用正确的路径初始化conda
-                "$system_conda_dir/bin/conda" init bash
-                
-                echo -e "${GREEN}✓ conda初始化成功${NC}"
-                
-                # 验证并修复conda路径
-                validate_conda_path "$system_conda_dir"
-                
-                if [ $DEBUG_MODE -eq 1 ]; then
-                    conda_version=$(conda --version)
-                    echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
-                fi
-                return 0
-            else
-                echo -e "${RED}× conda安装失败${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
-                return 1
-            fi
+            return 0
         else
-            echo -e "${GREEN}✓ conda已位于系统目录 $system_conda_dir${NC}"
+            echo -e "${YELLOW}虽然找到conda但未能使其在当前环境中可用，尝试安装新的conda${NC}"
         fi
     fi
     
     # 如果没有找到conda，则安装
-    echo -e "${YELLOW}conda未安装，正在安装miniconda...${NC}"
+    echo -e "${YELLOW}未找到可用的conda，准备安装miniconda...${NC}"
+    
+    # 确定安装目录（安装到非root用户目录下）
+    local install_dir
+    if [ "$non_root_user" != "root" ]; then
+        install_dir="/home/$non_root_user/miniconda3"
+        echo -e "${YELLOW}将安装conda到非root用户目录: $install_dir${NC}"
+    else
+        # 如果没有非root用户，则安装到/opt
+        install_dir="/opt/conda"
+        echo -e "${YELLOW}未找到适合的非root用户，将安装conda到系统目录: $install_dir${NC}"
+    fi
     
     # 使用国内或国际镜像
     local miniconda_url=""
@@ -1206,49 +1190,43 @@ EOF
     fi
     
     # 下载miniconda
-    retry_command_with_logging "wget $miniconda_url -O /tmp/miniconda.sh"
+    echo -e "${YELLOW}下载Miniconda安装脚本...${NC}"
+    local miniconda_installer="/tmp/miniconda.sh"
+    retry_command_with_logging "wget $miniconda_url -O $miniconda_installer" 300
     
-    # 安装到系统目录
-    echo -e "${YELLOW}安装conda到系统目录: $system_conda_dir${NC}"
-    bash /tmp/miniconda.sh -b -p $system_conda_dir
+    # 安装conda
+    echo -e "${YELLOW}安装conda到: $install_dir${NC}"
+    bash $miniconda_installer -b -p $install_dir
+    local install_status=$?
     
-    # 设置系统环境变量 - 所有用户都可以使用
-    cat > /etc/profile.d/conda.sh << EOF
-# 添加conda到系统PATH
-export PATH="$system_conda_dir/bin:\$PATH"
-
-# 为了兼容不同的shell，添加conda初始化
-if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
-    . "$system_conda_dir/etc/profile.d/conda.sh"
-fi
-EOF
-    chmod +x /etc/profile.d/conda.sh
+    # 清理安装文件
+    rm -f $miniconda_installer
     
-    # 为bash用户添加conda自动补全
-    if [ -f "$system_conda_dir/etc/profile.d/conda.sh" ]; then
-        echo ". $system_conda_dir/etc/profile.d/conda.sh" > /etc/profile.d/conda_init.sh
-        chmod +x /etc/profile.d/conda_init.sh
+    if [ $install_status -ne 0 ]; then
+        echo -e "${RED}× conda安装失败${NC}"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
+        return 1
     fi
     
-    rm -f /tmp/miniconda.sh
+    # 设置权限
+    if [ "$non_root_user" != "root" ]; then
+        echo -e "${YELLOW}设置conda目录权限给用户: $non_root_user${NC}"
+        chown -R $non_root_user:$non_root_user $install_dir
+    fi
+    
+    # 更新所有用户的PATH
+    update_all_users_path "$install_dir"
     
     # 更新当前PATH
-    export PATH="$system_conda_dir/bin:$PATH"
+    export PATH="$install_dir/bin:$PATH"
     
-    # 修改文件归属
-    if [ "$non_root_user" != "root" ]; then
-        echo -e "${YELLOW}更新文件归属为用户 $non_root_user${NC}"
-        chown -R $non_root_user:$non_root_user $system_conda_dir
-    fi
-    
-    # 初始化conda
+    # 验证安装
     if command_exists conda; then
-        echo -e "${YELLOW}正在初始化conda...${NC}"
+        echo -e "${GREEN}✓ conda安装成功且可用${NC}"
         
-        # 使用正确的路径初始化conda
-        "$system_conda_dir/bin/conda" init bash
-        
-        echo -e "${GREEN}✓ conda初始化成功${NC}"
+        # 初始化conda
+        echo -e "${YELLOW}初始化conda...${NC}"
+        "$install_dir/bin/conda" init bash
         
         if [ $DEBUG_MODE -eq 1 ]; then
             conda_version=$(conda --version)
@@ -1257,10 +1235,74 @@ EOF
         fi
         return 0
     else
-        echo -e "${RED}× conda安装失败${NC}"
+        echo -e "${RED}× conda安装失败，无法在PATH中找到conda命令${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda安装失败" >> "$LOG_FILE"
         return 1
     fi
+}
+
+# 更新所有用户的PATH以包含conda
+update_all_users_path() {
+    local conda_dir="$1"
+    echo -e "${YELLOW}更新所有用户的PATH以包含conda: $conda_dir${NC}"
+    
+    # 创建系统级conda初始化脚本
+    echo -e "${YELLOW}创建系统级conda初始化脚本...${NC}"
+    cat > /etc/profile.d/conda.sh << EOF
+# 添加conda到系统PATH
+export PATH="$conda_dir/bin:\$PATH"
+
+# 为了兼容不同的shell，添加conda初始化
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+fi
+EOF
+    chmod +x /etc/profile.d/conda.sh
+    
+    # 确保/etc/bashrc中source该文件
+    if [ -f "/etc/bashrc" ] && ! grep -q "/etc/profile.d/conda.sh" /etc/bashrc; then
+        echo -e "${YELLOW}添加conda初始化到/etc/bashrc...${NC}"
+        echo "[ -f /etc/profile.d/conda.sh ] && . /etc/profile.d/conda.sh" >> /etc/bashrc
+    fi
+    
+    # 为所有用户添加conda初始化到.bashrc
+    echo -e "${YELLOW}为用户添加conda初始化到.bashrc...${NC}"
+    local all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+    all_users+=("root")  # 也包括root用户
+    
+    for user in "${all_users[@]}"; do
+        local home_dir
+        if [ "$user" = "root" ]; then
+            home_dir="/root"
+        else
+            home_dir="/home/$user"
+        fi
+        
+        local bashrc="$home_dir/.bashrc"
+        
+        if [ -f "$bashrc" ] && ! grep -q "conda.sh" "$bashrc"; then
+            echo -e "${YELLOW}添加conda初始化到 $user 的.bashrc...${NC}"
+            cat >> "$bashrc" << EOF
+
+# >>> conda initialize >>>
+# !! 由KTransformers安装脚本添加 !!
+export PATH="$conda_dir/bin:\$PATH"
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+else
+    export PATH="$conda_dir/bin:\$PATH"
+fi
+# <<< conda initialize <<<
+EOF
+            
+            # 设置正确的所有权
+            if [ "$user" != "root" ] && [ "$(id -u)" -eq 0 ]; then
+                chown $user:$user "$bashrc"
+            fi
+        fi
+    done
+    
+    echo -e "${GREEN}✓ 已更新所有用户的PATH${NC}"
 }
 
 # 4. 使用conda创建环境
@@ -2848,6 +2890,7 @@ main() {
     
     # 执行各个步骤
     check_root || exit 1
+    
     install_git || exit 1
     
     # 克隆仓库，添加更详细的错误处理
@@ -2864,6 +2907,7 @@ main() {
     
     # 安装conda和创建环境 - 关键步骤，失败直接退出
     install_conda || { echo -e "${RED}× Conda安装失败，无法继续安装${NC}"; exit 1; }
+
     create_conda_env || { echo -e "${RED}× Conda环境创建失败，无法继续安装${NC}"; exit 1; }
     
     # 激活conda环境
@@ -2899,6 +2943,44 @@ main() {
     # 安装完成
     if [ $install_status -eq 0 ]; then
         echo -e "${GREEN}✓ 安装完成！${NC}"
+        
+        # 如果当前是root用户，将workspace所有权交给非root用户
+        if [ "$(id -u)" -eq 0 ]; then
+            # 查找适合的非root用户
+            local non_root_user=""
+            non_root_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+            if [ -z "$non_root_user" ]; then
+                non_root_user=$SUDO_USER
+            fi
+            
+            if [ -n "$non_root_user" ] && [ "$non_root_user" != "root" ]; then
+                echo -e "${YELLOW}将workspace所有权交给用户: $non_root_user${NC}"
+                
+                # 确保workspace存在
+                if [ -d "$INSTALL_DIR" ]; then
+                    chown -R $non_root_user:$non_root_user "$INSTALL_DIR"
+                    echo -e "${GREEN}✓ 已更改workspace所有权${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将workspace所有权交给: $non_root_user" >> "$LOG_FILE"
+                else
+                    echo -e "${YELLOW}警告: workspace目录不存在${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                fi
+                
+                # 也更改日志文件的所有权
+                if [ -f "$LOG_FILE" ]; then
+                    chown $non_root_user:$non_root_user "$LOG_FILE"
+                fi
+                
+                # 更改激活脚本的所有权
+                if [ -f "activate_env.sh" ]; then
+                    chown $non_root_user:$non_root_user "activate_env.sh"
+                fi
+            else
+                echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
+            fi
+        fi
+        
         completion_message
     else
         echo -e "${YELLOW}[WARN] 安装过程中有部分步骤失败，请查看详细日志${NC}"
