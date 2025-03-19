@@ -220,10 +220,10 @@ python -c "import torch; print(torch.cuda.is_available())"
 
 ```bash
 # 手动安装 flashinfer
-pip install flashinfer-python -f https://flashinfer.ai/whl/cu118/torch2.0
+pip install flashinfer-python -f https://flashinfer.ai/whl/cu124/torch2.6
 
 # 手动安装 PyTorch
-pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/cu118
+pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/cu124
 ```
 
 ### 环境激活问题
