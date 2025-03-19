@@ -231,6 +231,7 @@ select_or_input_path() {
     local title="$1"
     local default_path="$2"
     local path_type="$3"  # 描述这是什么路径
+    local result_path=""
     
     while true; do
         echo -e "\n╭─ ${title}"
@@ -243,19 +244,22 @@ select_or_input_path() {
         
         if [ $path_choice -eq 1 ]; then
             echo -e "${GREEN}✓ 使用默认${path_type}路径: ${default_path}${NC}"
-            echo "$default_path"
-            return 0
+            result_path="${default_path}"
+            break
         else
             read -p "请输入${path_type}路径: " user_path
             if [ -n "$user_path" ]; then
                 echo -e "${GREEN}✓ 使用自定义${path_type}路径: ${user_path}${NC}"
-                echo "$user_path"
-                return 0
+                result_path="${user_path}"
+                break
             else
                 echo -e "${YELLOW}路径不能为空，请重新选择${NC}"
             fi
         fi
     done
+    
+    # 单独一行返回路径值，确保不包含其他输出
+    echo "$result_path"
 }
 
 # 用户配置部分
@@ -303,7 +307,31 @@ configure_installation() {
         echo -e "\n${BLUE}配置安装参数${NC}"
         
         # 安装路径选择
-        INSTALL_DIR=$(select_or_input_path "请选择安装路径" "${INSTALL_DIR}" "安装")
+        local default_install_dir="${INSTALL_DIR}"
+        echo -e "\n╭─ 请选择安装路径"
+        echo -e "│"
+        echo -e "╰─ 默认路径: ${GREEN}${default_install_dir}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认安装路径?" "是" "否" "1"
+        local path_choice=$?
+        
+        if [ $path_choice -eq 1 ]; then
+            echo -e "${GREEN}✓ 使用默认安装路径: ${default_install_dir}${NC}"
+            INSTALL_DIR="${default_install_dir}"
+        else
+            read -p "请输入安装路径: " user_path
+            if [ -n "$user_path" ]; then
+                echo -e "${GREEN}✓ 使用自定义安装路径: ${user_path}${NC}"
+                INSTALL_DIR="$user_path"
+            else
+                echo -e "${YELLOW}路径不能为空，使用默认路径: ${default_install_dir}${NC}"
+                INSTALL_DIR="${default_install_dir}"
+            fi
+        fi
+        
+        # 确保INSTALL_DIR是纯字符串，不包含格式字符
+        INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
         
         # Conda环境名称选择
         echo -e "\n╭─ 请选择Conda环境名称"
@@ -946,112 +974,72 @@ test_github_connectivity() {
 }
 
 # 2. 拉取仓库
-clone_repository() {
-    log "INFO" "克隆KTransformers仓库到 $INSTALL_DIR"
+clone_repo() {
+    echo -e "${BLUE}[步骤 2] 克隆代码仓库${NC}"
     
-
-    mkdir -p "$INSTALL_DIR" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        log "ERROR" "无法创建目录 $INSTALL_DIR，请检查权限"
-        return 1
-    fi
+    # 确保INSTALL_DIR是纯路径，去除任何多余字符
+    INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
     
-
-    if [ ! -w "$INSTALL_DIR" ]; then
-        log "ERROR" "目录 $INSTALL_DIR 没有写入权限，请检查权限设置"
-        return 1
-    fi
-    
-
-    if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
-        if [ $FAST_MODE -eq 0 ]; then
-            log "WARN" "目录 $INSTALL_DIR 已存在且不为空"
-            read -p "是否继续安装? 这可能会覆盖现有文件 [y/N]: " -r
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                log "ERROR" "安装已取消"
-                exit 1
+    # 确保安装目录存在
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}[INFO] 目录已存在: $INSTALL_DIR${NC}"
+        
+        # 检查目录是否为空
+        if [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+            echo -e "${YELLOW}[WARN] 安装目录不为空${NC}"
+            
+            show_selection_menu "安装目录不为空，是否继续?" "是" "否" "1"
+            local continue_choice=$?
+            
+            if [ $continue_choice -ne 1 ]; then
+                echo -e "${YELLOW}[INFO] 用户选择不继续，退出安装${NC}"
+                exit 0
             fi
-        else
-            log "WARN" "目录 $INSTALL_DIR 已存在且不为空，快速模式下将继续安装"
-        fi
-    fi
-    
-    # 默认仓库地址
-    local repo_url="https://github.com/kvcache-ai/ktransformers.git"
-    local github_repo="kvcache-ai/ktransformers.git"
-    local tmp_log=$(mktemp)
-    
-    # 根据用户选择设置代理方式
-    if [ $USE_GHPROXY -eq 1 ]; then
-        log "INFO" "根据用户设置，使用国内代理克隆仓库"
-        repo_url="https://ghfast.top/https://github.com/${github_repo}"
-        log "DEBUG" "初始仓库URL: $repo_url"
-        
-        # 尝试使用首选代理克隆
-        log "INFO" "开始使用ghfast.top代理克隆..."
-        git clone "$repo_url" "$INSTALL_DIR" --progress 2>&1 | tee "$tmp_log" | grep --line-buffered -i "Receiving objects\|Resolving deltas"
-        local exit_code=${PIPESTATUS[0]}
-        
-        # 克隆成功，直接返回
-        if [ $exit_code -eq 0 ] && [ -d "$INSTALL_DIR/.git" ]; then
-            log "SUCCESS" "仓库克隆成功"
-            rm -f "$tmp_log"
+            
+            echo -e "${YELLOW}[INFO] 继续安装${NC}"
             return 0
-        else
-            log "WARN" "使用ghfast.top代理克隆失败，尝试备用代理..."
-            
-            # 尝试备用代理列表
-            local other_proxies=(
-                "https://ghproxy.homeboyc.cn"
-                "https://mirror.ghproxy.com"
-                "https://ghproxy.net"
-                "https://gh.api.99988866.xyz"
-            )
-            
-            for proxy in "${other_proxies[@]}"; do
-                log "INFO" "尝试使用代理 $proxy 克隆..."
-                if git clone "${proxy}/https://github.com/${github_repo}" "$INSTALL_DIR" --progress; then
-                    log "SUCCESS" "使用代理 $proxy 克隆成功"
-                    rm -f "$tmp_log"
-                    return 0
-                fi
-            done
-            
-            # 最后尝试直接克隆
-            log "INFO" "所有代理都失败，尝试直接从GitHub克隆..."
-            if git clone "https://github.com/${github_repo}" "$INSTALL_DIR" --progress; then
-                log "SUCCESS" "使用直接连接克隆成功"
-                rm -f "$tmp_log"
-                return 0
-            fi
         fi
     else
-        # 用户选择不使用国内代理，直接从GitHub克隆
-        log "INFO" "根据用户设置，直接从GitHub克隆仓库"
-        log "DEBUG" "仓库URL: $repo_url"
-        
-        log "INFO" "开始克隆仓库..."
-        git clone "$repo_url" "$INSTALL_DIR" --progress 2>&1 | tee "$tmp_log" | grep --line-buffered -i "Receiving objects\|Resolving deltas"
-        local exit_code=${PIPESTATUS[0]}
-        
-        if [ $exit_code -eq 0 ] && [ -d "$INSTALL_DIR/.git" ]; then
-            log "SUCCESS" "仓库克隆成功"
-            rm -f "$tmp_log"
-            return 0
-        else
-            log "ERROR" "仓库克隆失败 (错误码: $exit_code)"
-            log "DEBUG" "克隆错误详情:"
-            cat "$tmp_log" | tail -n 20
-            
-            # 如果连接失败，提示可能需要代理
-            if grep -q "timeout\|timed out\|connection refused\|network" "$tmp_log"; then
-                log "WARN" "检测到网络问题，您可能需要启用国内代理。请重新运行脚本并选择启用国内代理。"
-            fi
-        fi
+        echo -e "${YELLOW}[INFO] 创建目录: $INSTALL_DIR${NC}"
+        mkdir -p "$INSTALL_DIR" || {
+            echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
+            return 1
+        }
     fi
     
-    rm -f "$tmp_log"
-    return 1
+    # 根据用户选择设置不同的代理URL
+    local repo_url="https://github.com/kvcache-ai/ktransformers.git"
+    local clone_url="$repo_url"
+    
+    if [ $USE_GHPROXY -eq 1 ]; then
+        echo -e "${YELLOW}[INFO] 根据用户设置，使用国内代理克隆仓库${NC}"
+        clone_url="${GHPROXY_URL}/${repo_url}"
+        echo -e "${YELLOW}[DEBUG] 初始仓库URL: ${clone_url}${NC}"
+    fi
+    
+    echo -e "${YELLOW}[INFO] 开始$([ $USE_GHPROXY -eq 1 ] && echo "使用${GHPROXY_URL}代理")克隆...${NC}"
+    
+    # 克隆仓库
+    if git clone "$clone_url" "$INSTALL_DIR"; then
+        echo -e "${GREEN}✓ 仓库克隆成功${NC}"
+        return 0
+    else
+        # 如果使用代理失败，尝试直接连接
+        if [ $USE_GHPROXY -eq 1 ]; then
+            echo -e "${YELLOW}[WARN] 使用代理克隆失败，尝试直接连接...${NC}"
+            
+            if git clone "$repo_url" "$INSTALL_DIR"; then
+                echo -e "${GREEN}✓ 直接克隆仓库成功${NC}"
+                return 0
+            else
+                echo -e "${RED}× 仓库克隆失败${NC}"
+                return 1
+            fi
+        else
+            echo -e "${RED}× 仓库克隆失败${NC}"
+            return 1
+        fi
+    fi
 }
 
 # 3. 检测conda
@@ -1650,78 +1638,79 @@ install_pytorch() {
 
 # 6. 初始化git子模块
 init_git_submodules() {
-    log "INFO" "初始化git子模块"
+    echo -e "${BLUE}[步骤 6] 初始化git子模块${NC}"
     
-    cd "$INSTALL_DIR" || {
-        log "ERROR" "无法进入安装目录 $INSTALL_DIR"
+    # 获取绝对路径
+    if [[ "$INSTALL_DIR" != /* ]]; then
+        ACTUAL_INSTALL_DIR="$(pwd)/${INSTALL_DIR}"
+    else
+        ACTUAL_INSTALL_DIR="$INSTALL_DIR"
+    fi
+    
+    # 确保安装目录存在
+    if [ ! -d "$ACTUAL_INSTALL_DIR" ]; then
+        echo -e "${RED}× 安装目录不存在: $ACTUAL_INSTALL_DIR${NC}"
+        return 1
+    fi
+    
+    # 进入安装目录
+    cd "$ACTUAL_INSTALL_DIR" || {
+        echo -e "${RED}× 无法进入安装目录 $ACTUAL_INSTALL_DIR${NC}"
         return 1
     }
     
-    # 检查是否存在.gitmodules文件
-    if [ ! -f ".gitmodules" ]; then
-        log "INFO" "未找到.gitmodules文件，跳过子模块初始化"
-        return 0
-    fi
+    echo -e "${YELLOW}[INFO] 初始化git子模块${NC}"
     
-    # 创建备份
-    cp -f .gitmodules .gitmodules.bak
-    
-    # 根据用户选择的代理设置来配置子模块
     if [ $USE_GHPROXY -eq 1 ]; then
-        log "INFO" "使用ghfast.top代理加速子模块克隆"
+        # 如果使用代理，设置.gitmodules中的URL
+        echo -e "${YELLOW}[INFO] 使用代理配置子模块...${NC}"
+        git config submodule.recurse true
         
-        # 修改.gitmodules文件
-        log "INFO" "修改.gitmodules使用ghfast.top代理"
-        sed -i.bak "s|https://github.com|https://ghfast.top/https://github.com|g" .gitmodules
-        log "SUCCESS" "已为子模块添加ghfast.top代理前缀"
-        
-        # 配置git全局设置
-        log "INFO" "配置git全局设置，使用ghfast.top代理"
-        git config --global url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/"
-        
-        if [ $DEBUG_MODE -eq 1 ]; then
-            log "DEBUG" "当前git配置:"
-            git config --global --get-regexp url
-            log "DEBUG" "当前.gitmodules内容:"
-            cat .gitmodules
+        # 替换子模块中的URL
+        if [ -f ".gitmodules" ]; then
+            echo -e "${YELLOW}[INFO] 更新.gitmodules中的URL以使用代理...${NC}"
+            sed -i 's#url = https://github.com/#url = '${GHPROXY_URL}'/https://github.com/#g' .gitmodules
+            
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✓ 成功更新.gitmodules${NC}"
+            else
+                echo -e "${YELLOW}[WARN] 更新.gitmodules失败，继续尝试初始化...${NC}"
+            fi
         fi
-    else
-        log "INFO" "使用直接连接初始化子模块"
     fi
-    
-    # 同步子模块配置
-    git submodule sync
     
     # 初始化和更新子模块
-    log "INFO" "执行git子模块初始化和更新..."
-    if git submodule init && git submodule update; then
-        log "SUCCESS" "git子模块初始化和更新完成"
-        return 0
-    else
-        log "ERROR" "git子模块操作失败，尝试还原配置后重试"
+    echo -e "${YELLOW}[INFO] 初始化子模块...${NC}"
+    git submodule update --init --recursive
+    
+    local submodule_status=$?
+    if [ $submodule_status -ne 0 ]; then
+        echo -e "${RED}× 子模块初始化失败，尝试直接连接...${NC}"
         
-        # 还原备份并重新同步
-        if [ -f ".gitmodules.bak" ]; then
-            log "INFO" "还原.gitmodules文件"
-            mv -f .gitmodules.bak .gitmodules
-            git submodule sync
-        fi
-        
-        # 清除全局设置
+        # 如果失败且使用了代理，尝试不使用代理
         if [ $USE_GHPROXY -eq 1 ]; then
-            log "INFO" "清除git全局代理设置"
-            git config --global --unset url."https://ghfast.top/https://github.com/".insteadOf 2>/dev/null
-        fi
-        
-        # 最后尝试直接更新
-        log "INFO" "尝试直接更新子模块..."
-        if git submodule init && git submodule update; then
-            log "SUCCESS" "直接更新子模块成功"
-            return 0
+            echo -e "${YELLOW}[INFO] 尝试不使用代理初始化...${NC}"
+            
+            # 恢复原始.gitmodules
+            if [ -f ".gitmodules" ]; then
+                sed -i 's#url = '${GHPROXY_URL}'/https://github.com/#url = https://github.com/#g' .gitmodules
+            fi
+            
+            # 重新尝试
+            git submodule update --init --recursive
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✓ 子模块初始化成功（不使用代理）${NC}"
+                return 0
+            else
+                echo -e "${RED}× 子模块初始化失败${NC}"
+                return 1
+            fi
         else
-            log "ERROR" "子模块更新失败"
             return 1
         fi
+    else
+        echo -e "${GREEN}✓ 子模块初始化成功${NC}"
+        return 0
     fi
 }
 
@@ -2364,195 +2353,119 @@ update_git_submodules_with_progress() {
     fi
 }
 
-# 安装flash_attn
+# 安装Flash Attention
 install_flash_attn() {
-    log "INFO" "安装Flash Attention"
+    echo -e "${BLUE}[步骤] 安装Flash Attention${NC}"
     
-
-    if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
-        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..."
-        
-
-        local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
-        if [ -n "$torch_version" ]; then
-            TORCH_VERSION="$torch_version"
-            FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d. -f1,2 | sed 's/\.//')"
-            
-
-            local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
-            if [ -n "$cuda_torch_version" ]; then
-                CUDA_VERSION="$cuda_torch_version"
-                FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
-                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})"
-            fi
-        else
-            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装"
-            return 1
-        fi
-    fi
-    
-
-    local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
-    if [ -z "$python_version" ]; then
-        log "ERROR" "无法检测到Python版本"
-        return 1
-    fi
-    
-
-    local actual_cuda_version="$CUDA_VERSION"
+    # 保存当前的CUDA版本格式
     local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
     
-
-    local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
+    # 创建临时目录用于克隆和构建
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir" || {
+        echo -e "${RED}× 无法创建临时目录${NC}"
+        return 1
+    }
     
-
-    FORMATTED_CUDA_VERSION="cu${cuda_major}"
+    echo -e "${YELLOW}尝试安装Flash Attention...${NC}"
     
-    log "INFO" "检测到环境信息:"
-    log "INFO" "- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})"
-    log "INFO" "- 将使用CUDA大版本: ${FORMATTED_CUDA_VERSION} 进行安装"
-    log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})"
-    log "INFO" "- Python版本: ${python_version}"
-    
-
-    log "INFO" "尝试安装预编译的Flash Attention..."
-    
-
-    local flash_attn_version="2.7.4.post1"
-    local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
-    local package_name="flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
-    
-
-    local flash_attn_url
-    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-
-        flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
-        log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}"
-    else
-        flash_attn_url="${base_url}/${package_name}"
-        log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}"
-    fi
-    
-    log "INFO" "尝试下载: ${flash_attn_url}"
-    
-
-    if pip install "${flash_attn_url}"; then
-        log "SUCCESS" "Flash Attention预编译包安装成功"
-        
-
-        if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-            log "SUCCESS" "Flash Attention导入测试成功"
-
-            FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-            return 0
-        else
-            log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..."
+    # 使用conda环境中的pip安装
+    if [ $USE_GHPROXY -eq 1 ]; then
+        # 尝试通过pip安装
+        if pip install flash-attn --no-build-isolation; then
+            echo -e "${GREEN}✓ Flash Attention安装成功${NC}"
+            
+            # 验证安装
+            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+                echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
+                
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+                cd "$INSTALL_DIR"
+                rm -rf "$temp_dir"
+                return 0
+            else
+                echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
+                
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+                cd "$INSTALL_DIR"
+                rm -rf "$temp_dir"
+                return 1
+            fi
         fi
-    else
-        log "WARN" "预编译包安装失败，尝试从源码安装..."
-    fi
-    
-
-    log "INFO" "准备从源码安装Flash Attention..."
-    
-
-    log "INFO" "安装ninja构建工具..."
-    pip uninstall -y ninja && pip install ninja
-    
-
-    log "INFO" "设置编译环境变量，使用${MAX_JOBS}个编译线程..."
-    export MAX_JOBS="$MAX_JOBS"
-    
-
-    if [ $USE_NUMA -eq 1 ]; then
-        log "INFO" "启用NUMA优化..."
-        export USE_NUMA=1
-    fi
-    
-
-    log "INFO" "开始编译安装Flash Attention..."
-    
-
-    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-
-        log "INFO" "使用代理从源码安装Flash Attention..."
         
-
-        local temp_dir=$(mktemp -d)
-        cd "$temp_dir" || {
-            log "ERROR" "无法创建临时目录"
-            return 1
-        }
+        # 如果pip安装失败，尝试从源码安装
+        echo -e "${YELLOW}通过pip安装失败，尝试从源码安装...${NC}"
         
-
-        log "INFO" "克隆Flash Attention仓库..."
+        # 克隆仓库 (使用ghproxy加速)
         if git clone "${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention.git"; then
             cd flash-attention || {
-                log "ERROR" "无法进入flash-attention目录"
+                echo -e "${RED}× 无法进入flash-attention目录${NC}"
+                
+                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
+                cd "$INSTALL_DIR"
+                rm -rf "$temp_dir"
                 return 1
             }
             
-
-            log "INFO" "从源码安装Flash Attention..."
+            # 安装依赖
+            pip install packaging
+            
+            # 编译并安装
             if pip install -e .; then
-                log "SUCCESS" "Flash Attention从源码安装成功"
+                echo -e "${GREEN}✓ Flash Attention从源码安装成功${NC}"
                 
-
+                # 验证安装
                 if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                    log "SUCCESS" "Flash Attention导入测试成功"
-
+                    echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
+                    
                     FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
                     cd "$INSTALL_DIR"
                     rm -rf "$temp_dir"
                     return 0
                 else
-                    log "WARN" "Flash Attention安装成功但导入失败"
-
+                    echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
+                    
                     FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
                     cd "$INSTALL_DIR"
                     rm -rf "$temp_dir"
                     return 1
                 fi
             else
-                log "ERROR" "Flash Attention从源码安装失败"
-
+                echo -e "${RED}× Flash Attention从源码安装失败${NC}"
+                
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
                 cd "$INSTALL_DIR"
                 rm -rf "$temp_dir"
                 return 1
             fi
         else
-            log "ERROR" "克隆Flash Attention仓库失败"
-
+            echo -e "${RED}× 克隆Flash Attention仓库失败${NC}"
+            
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-
             cd "$INSTALL_DIR"
             rm -rf "$temp_dir"
             return 1
         fi
     else
-
+        # 直接从PyPI安装
         if pip install flash-attn --no-build-isolation; then
-            log "SUCCESS" "Flash Attention从源码安装成功"
+            echo -e "${GREEN}✓ Flash Attention从源码安装成功${NC}"
             
-
+            # 验证安装
             if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                log "SUCCESS" "Flash Attention导入测试成功"
-
+                echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
+                
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                 return 0
             else
-                log "WARN" "Flash Attention安装成功但导入失败"
-
+                echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
+                
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                 return 1
             fi
         else
-            log "ERROR" "Flash Attention从源码安装失败"
-
+            echo -e "${RED}× Flash Attention从源码安装失败${NC}"
+            
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
             return 1
         fi
@@ -2583,6 +2496,87 @@ check_best_github_site() {
     fi
     
     return 0
+}
+
+# 安装Python依赖
+install_python_deps() {
+    echo -e "${BLUE}[步骤 10] 安装Python依赖${NC}"
+    
+    cd "$INSTALL_DIR" || {
+        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
+        return 1
+    }
+    
+    echo -e "${YELLOW}安装Python依赖...${NC}"
+    
+    # 查找requirements.txt文件
+    if [ -f "requirements.txt" ]; then
+        echo -e "${YELLOW}找到requirements.txt，开始安装依赖...${NC}"
+        
+        # 使用pip安装依赖
+        if pip install -r requirements.txt; then
+            echo -e "${GREEN}✓ Python依赖安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× Python依赖安装失败${NC}"
+            return 1
+        fi
+    else
+        echo -e "${YELLOW}未找到requirements.txt，尝试安装基本依赖...${NC}"
+        
+        # 安装基本依赖
+        if pip install numpy requests tqdm transformers huggingface_hub; then
+            echo -e "${GREEN}✓ 基本Python依赖安装成功${NC}"
+            return 0
+        else
+            echo -e "${RED}× 基本Python依赖安装失败${NC}"
+            return 1
+        fi
+    fi
+}
+
+# 安装KTransformers
+install_ktransformers() {
+    echo -e "${BLUE}[步骤 11] 安装KTransformers${NC}"
+    
+    cd "$INSTALL_DIR" || {
+        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
+        return 1
+    }
+    
+    echo -e "${YELLOW}开始安装KTransformers...${NC}"
+    
+    # 尝试安装本地包
+    if [ -f "setup.py" ]; then
+        echo -e "${YELLOW}找到setup.py，安装为开发版本...${NC}"
+        
+        if pip install -e .; then
+            echo -e "${GREEN}✓ KTransformers安装成功${NC}"
+            
+            # 验证安装
+            if python -c "import ktransformers" &>/dev/null; then
+                echo -e "${GREEN}✓ KTransformers导入测试成功${NC}"
+                return 0
+            else
+                echo -e "${YELLOW}KTransformers安装成功但导入失败${NC}"
+                return 1
+            fi
+        else
+            echo -e "${RED}× KTransformers安装失败${NC}"
+            return 1
+        fi
+    else
+        echo -e "${YELLOW}未找到setup.py，尝试安装flashinfer和flash_attn依赖...${NC}"
+        
+        # 安装flashinfer
+        download_flashinfer || echo -e "${YELLOW}flashinfer安装失败，但继续进行${NC}"
+        
+        # 安装flash_attn
+        install_flash_attn || echo -e "${YELLOW}flash_attn安装失败，但继续进行${NC}"
+        
+        echo -e "${GREEN}✓ 核心依赖安装完成${NC}"
+        return 0
+    fi
 }
 
 # 完成消息
@@ -2678,7 +2672,7 @@ main() {
     install_git || exit 1
     
     # 克隆仓库
-    clone_repository || install_status=1
+    clone_repo || install_status=1
     
     # 安装conda
     install_conda || install_status=1
@@ -2710,6 +2704,8 @@ main() {
 
 # 运行主函数
 main "$@"
+
+
 
 
 
