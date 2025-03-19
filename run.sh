@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # 脚本版本信息
-# 最后更新: 2025-03-16
-# 版本: 1.0.1
+# 最后更新: 2025-03-20
+# 版本: 1.1.0
 # 作者: Limitee
 
 # =====================================================
@@ -149,11 +149,6 @@ FAST_MODE=0                     # 快速安装模式开关
 LOG_FILE=""                     # 日志文件路径
 CUSTOM_PATH=""                  # 自定义PATH
 
-# 已移除的不再使用的变量:
-# - IS_PROXY_SITE
-# - BEST_GITHUB_SITE
-# - REPO_URL
-
 # 添加单选框交互函数
 show_selection_menu() {
     local title="$1"
@@ -167,10 +162,10 @@ show_selection_menu() {
     
     # 设置默认选项
     if [ "$default_opt" = "1" ]; then
-        opt1_status="●"
+        opt1_status="\033[1;32m●\033[0m"  # 绿色高亮
         selected="1"
     else
-        opt2_status="●"
+        opt2_status="\033[1;32m●\033[0m"  # 绿色高亮
         selected="2"
     fi
     
@@ -188,14 +183,14 @@ show_selection_menu() {
                 if [ "$selected" = "1" ]; then
                     selected="2"
                     opt1_status="○"
-                    opt2_status="●"
+                    opt2_status="\033[1;32m●\033[0m"  # 绿色高亮
                 fi
                 echo -e "\r\033[K"  # 清除当前行
                 continue
             elif [[ "$rest" == "[D" ]]; then  # 左方向键
                 if [ "$selected" = "2" ]; then
                     selected="1"
-                    opt1_status="●"
+                    opt1_status="\033[1;32m●\033[0m"  # 绿色高亮
                     opt2_status="○"
                 fi
                 echo -e "\r\033[K"  # 清除当前行
@@ -1754,17 +1749,18 @@ init_git_submodules() {
         git config submodule.recurse true
         
         # 替换子模块中的URL
-        if [ -f ".gitmodules" ]; then
-            echo -e "${YELLOW}[INFO] 更新.gitmodules中的URL以使用代理...${NC}"
-            sed -i 's#url = https://github.com/#url = '${GHPROXY_URL}'/https://github.com/#g' .gitmodules
-            
-            if [ $? -eq 0 ]; then
-                echo -e "${GREEN}✓ 成功更新.gitmodules${NC}"
-            else
-                echo -e "${YELLOW}[WARN] 更新.gitmodules失败，继续尝试初始化...${NC}"
-            fi
+        if [ $USE_GHPROXY -eq 1 ]; then
+            echo -e "${YELLOW}[INFO] 使用代理配置子模块...${NC}"
+            git config submodule.recurse true
+
+            # 递归更新所有子模块的URL
+            git submodule foreach --recursive '
+                if [ -f .gitmodules ]; then
+                    sed -i "s#url = https://github.com/#url = '${GHPROXY_URL}'/https://github.com/#g" .gitmodules
+                    git submodule sync
+                fi
+            '
         fi
-    fi
     
     # 初始化和更新子模块
     echo -e "${YELLOW}[INFO] 初始化子模块...${NC}"
@@ -2482,120 +2478,108 @@ update_git_submodules_with_progress() {
 
 # 安装Flash Attention
 install_flash_attn() {
-    echo -e "${BLUE}[步骤] 安装Flash Attention${NC}"
-    
-    # 保存当前的CUDA版本格式
-    local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
-    
-    # 创建临时目录用于克隆和构建
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir" || {
-        echo -e "${RED}× 无法创建临时目录${NC}"
-        return 1
-    }
-    
-    echo -e "${YELLOW}尝试安装Flash Attention...${NC}"
-    
-    # 使用conda环境中的pip安装
-    if [ $USE_GHPROXY -eq 1 ]; then
-        # 尝试通过pip安装
-        if pip install flash-attn --no-build-isolation; then
-            echo -e "${GREEN}✓ Flash Attention安装成功${NC}"
-            
-            # 验证安装
-            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
-                
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                cd "$INSTALL_DIR"
-                rm -rf "$temp_dir"
-                return 0
-            else
-                echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
-                
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                cd "$INSTALL_DIR"
-                rm -rf "$temp_dir"
-                return 1
-            fi
-        fi
-        
-        # 如果pip安装失败，尝试从源码安装
-        echo -e "${YELLOW}通过pip安装失败，尝试从源码安装...${NC}"
-        
-        # 克隆仓库 (使用ghproxy加速)
-        if git clone "${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention.git"; then
-            cd flash-attention || {
-                echo -e "${RED}× 无法进入flash-attention目录${NC}"
-                
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                cd "$INSTALL_DIR"
-                rm -rf "$temp_dir"
-                return 1
-            }
-            
-            # 安装依赖
-            pip install packaging
-            
-            # 编译并安装
-            if pip install -e .; then
-                echo -e "${GREEN}✓ Flash Attention从源码安装成功${NC}"
-                
-                # 验证安装
-                if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                    echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
-                    
-                    FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                    cd "$INSTALL_DIR"
-                    rm -rf "$temp_dir"
-                    return 0
-                else
-                    echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
-                    
-                    FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                    cd "$INSTALL_DIR"
-                    rm -rf "$temp_dir"
-                    return 1
-                fi
-            else
-                echo -e "${RED}× Flash Attention从源码安装失败${NC}"
-                
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                cd "$INSTALL_DIR"
-                rm -rf "$temp_dir"
-                return 1
+    log "INFO" "安装Flash Attention"
+
+    if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
+        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..."
+
+        local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
+        if [ -n "$torch_version" ]; then
+            TORCH_VERSION="$torch_version"
+            FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d. -f1,2 | sed 's/\.//')"
+
+            local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
+            if [ -n "$cuda_torch_version" ]; then
+                CUDA_VERSION="$cuda_torch_version"
+                FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
+                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})"
             fi
         else
-            echo -e "${RED}× 克隆Flash Attention仓库失败${NC}"
-            
+            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装"
+            return 1
+        fi
+    fi
+
+    local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
+    if [ -z "$python_version" ]; then
+        log "ERROR" "无法检测到Python版本"
+        return 1
+    fi
+
+    local actual_cuda_version="$CUDA_VERSION"
+    local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
+    local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
+    FORMATTED_CUDA_VERSION="cu${cuda_major}"
+
+    log "INFO" "检测到环境信息:"
+    log "INFO" "- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})"
+    log "INFO" "- 将使用CUDA大版本: ${FORMATTED_CUDA_VERSION} 进行安装"
+    log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})"
+    log "INFO" "- Python版本: ${python_version}"
+
+    log "INFO" "尝试安装预编译的Flash Attention..."
+
+    local flash_attn_version="2.7.4.post1"
+    local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
+    local package_name="flash_attn-${flash_attn_version}+${FORMATTED_CUDA_VERSION}${FORMATTED_TORCH_VERSION}cxx11abiFALSE-${python_version}-${python_version}-linux_x86_64.whl"
+
+    local flash_attn_url
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+        flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
+        log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}"
+    else
+        flash_attn_url="${base_url}/${package_name}"
+        log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}"
+    fi
+
+    log "INFO" "尝试下载: ${flash_attn_url}"
+
+    if pip install "${flash_attn_url}"; then
+        log "SUCCESS" "Flash Attention预编译包安装成功"
+
+        if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
+            log "SUCCESS" "Flash Attention导入测试成功"
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-            cd "$INSTALL_DIR"
-            rm -rf "$temp_dir"
+            return 0
+        else
+            log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..."
+        fi
+    else
+        log "WARN" "预编译包安装失败，尝试从源码安装..."
+    fi
+
+    log "INFO" "准备从源码安装Flash Attention..."
+
+    log "INFO" "安装ninja构建工具..."
+    pip uninstall -y ninja && pip install ninja
+
+    log "INFO" "设置编译环境变量，使用${MAX_JOBS}个编译线程..."
+    export MAX_JOBS="$MAX_JOBS"
+
+    # 克隆并编译
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir" || {
+        log "ERROR" "无法创建临时目录"
+        return 1
+    }
+
+    if git clone https://github.com/Dao-AILab/flash-attention.git; then
+        cd flash-attention || {
+            log "ERROR" "无法进入flash-attention目录"
+            return 1
+        }
+
+        log "INFO" "使用ninja编译并安装..."
+        if python setup.py install --use_ninja; then
+            log "SUCCESS" "Flash Attention从源码编译安装成功"
+            return 0
+        else
+            log "ERROR" "Flash Attention从源码编译安装失败"
             return 1
         fi
     else
-        # 直接从PyPI安装
-        if pip install flash-attn --no-build-isolation; then
-            echo -e "${GREEN}✓ Flash Attention从源码安装成功${NC}"
-            
-            # 验证安装
-            if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-                echo -e "${GREEN}✓ Flash Attention导入测试成功${NC}"
-                
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                return 0
-            else
-                echo -e "${YELLOW}Flash Attention安装成功但导入失败${NC}"
-                
-                FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-                return 1
-            fi
-        else
-            echo -e "${RED}× Flash Attention从源码安装失败${NC}"
-            
-            FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
-            return 1
-        fi
+        log "ERROR" "克隆Flash Attention仓库失败"
+        return 1
     fi
 }
 
@@ -2698,105 +2682,115 @@ install_python_deps() {
 
 # 编译和构建所需库
 build_libraries() {
-    echo -e "${BLUE}[步骤 9] 编译和构建所需库${NC}"
+    log "INFO" "编译和构建所需库"
     
-    cd "$INSTALL_DIR" || {
-        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
+    # 检查llama.cpp子模块是否已正确注册
+    if [ -d "third_party/llama.cpp" ] && [ -f "third_party/llama.cpp/CMakeLists.txt" ]; then
+        log "SUCCESS" "llama.cpp子模块已正确注册，跳过构建"
+    else
+        log "ERROR" "llama.cpp子模块未正确注册，请检查子模块初始化"
         return 1
-    }
+    fi
     
-    # 检查是否有编译脚本
-    if [ -f "build.sh" ]; then
-        echo -e "${YELLOW}找到build.sh，开始编译...${NC}"
-        
-        # 设置编译环境变量
-        export MAX_JOBS=$MAX_JOBS
-        if [ $USE_NUMA -eq 1 ]; then
-            export USE_NUMA=1
-            echo -e "${YELLOW}已启用USE_NUMA编译选项${NC}"
-        fi
-        
-        # 执行编译
-        if bash build.sh; then
-            echo -e "${GREEN}✓ 库编译成功${NC}"
-            return 0
+    # 1. 更新libstdc++6
+    log "INFO" "更新libstdc++6"
+    
+    if ! command_exists add-apt-repository; then
+        log "WARN" "add-apt-repository命令不存在，尝试安装..."
+        DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+    fi
+    
+    if command_exists add-apt-repository; then
+        if add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
+           DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+           DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade libstdc++6; then
+            log "SUCCESS" "libstdc++6更新成功"
         else
-            echo -e "${RED}× 库编译失败${NC}"
-            return 1
+            log "ERROR" "libstdc++6更新失败"
+            log "WARN" "将继续安装过程，但可能影响某些运行时功能"
         fi
     else
-        echo -e "${YELLOW}未找到build.sh，尝试编译第三方库...${NC}"
-        
-        # 尝试编译子模块中的库
-        if [ -d "third_party/llama.cpp" ]; then
-            echo -e "${YELLOW}编译llama.cpp...${NC}"
-            
-            cd third_party/llama.cpp || {
-                echo -e "${RED}× 无法进入llama.cpp目录${NC}"
-                return 1
-            }
-            
-            if [ $USE_NUMA -eq 1 ]; then
-                export USE_NUMA=1
-                echo -e "${YELLOW}已启用USE_NUMA编译选项${NC}"
-            fi
-            
-            if make -j$MAX_JOBS; then
-                echo -e "${GREEN}✓ llama.cpp编译成功${NC}"
-                cd "$INSTALL_DIR" || return 1
-            else
-                echo -e "${RED}× llama.cpp编译失败${NC}"
-                cd "$INSTALL_DIR" || return 1
-                return 1
-            fi
-        fi
-        
-        echo -e "${GREEN}✓ 库构建完成${NC}"
-        return 0
+        log "ERROR" "无法安装add-apt-repository工具，跳过libstdc++6更新"
+        log "WARN" "将继续安装过程，但可能影响某些运行时功能"
     fi
+    
+    # 2. 安装libstdcxx-ng
+    log "INFO" "安装libstdcxx-ng"
+    if retry_command_with_logging "conda install -c conda-forge libstdcxx-ng -y" 300; then
+        log "SUCCESS" "libstdcxx-ng安装成功"
+    else
+        log "ERROR" "libstdcxx-ng安装失败"
+        log "WARN" "将继续安装过程，但可能影响某些运行时功能"
+    fi
+    
+    return 0
 }
 
 # 安装KTransformers
 install_ktransformers() {
-    echo -e "${BLUE}[步骤 11] 安装KTransformers${NC}"
+    log "INFO" "安装KTransformers"
+    
+    if [ ! -d "$INSTALL_DIR" ]; then
+        log "ERROR" "目录 $INSTALL_DIR 不存在"
+        return 1
+    fi
     
     cd "$INSTALL_DIR" || {
-        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
+        log "ERROR" "无法进入 $INSTALL_DIR 目录"
         return 1
     }
     
-    echo -e "${YELLOW}开始安装KTransformers...${NC}"
-    
-    # 尝试安装本地包
-    if [ -f "setup.py" ]; then
-        echo -e "${YELLOW}找到setup.py，安装为开发版本...${NC}"
+    # 首先尝试使用make
+    if ! command_exists make; then
+        log "ERROR" "make命令不存在，尝试安装..."
+        DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential
         
-        if pip install -e .; then
-            echo -e "${GREEN}✓ KTransformers安装成功${NC}"
+        if ! command_exists make; then
+            log "ERROR" "无法安装make工具"
+            log "WARN" "尝试使用pip直接安装..."
             
-            # 验证安装
-            if python -c "import ktransformers" &>/dev/null; then
-                echo -e "${GREEN}✓ KTransformers导入测试成功${NC}"
+            if pip install -e .; then
+                log "SUCCESS" "使用pip安装成功"
                 return 0
             else
-                echo -e "${YELLOW}KTransformers安装成功但导入失败${NC}"
+                log "ERROR" "使用pip安装也失败"
                 return 1
             fi
+        fi
+    fi
+    
+    log "INFO" "开始执行make（这可能需要一些时间）..."
+    log "INFO" "编译过程中可能会显示一些警告，这是正常现象"
+    
+    local make_output=""
+    local make_error_file="$INSTALL_DIR/make_error.log"
+    
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make..." > "$make_error_file"
+    
+    if make_output=$(make 2>&1); then
+        log "SUCCESS" "make执行成功"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make执行成功" >> "$make_error_file"
+        return 0
+    else
+        local exit_code=$?
+        log "ERROR" "make执行失败 (错误码: $exit_code)"
+        log "WARN" "编译错误已保存到 $make_error_file"
+        
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make执行失败 (错误码: $exit_code)" >> "$make_error_file"
+        echo "==================== 错误输出 ====================" >> "$make_error_file"
+        echo "$make_output" >> "$make_error_file"
+        echo "==================================================" >> "$make_error_file"
+        
+        log "WARN" "尝试使用pip直接安装..."
+        if pip install -e .; then
+            log "SUCCESS" "使用pip安装成功"
+            return 0
         else
-            echo -e "${RED}× KTransformers安装失败${NC}"
+            log "ERROR" "使用pip安装也失败"
             return 1
         fi
-    else
-        echo -e "${YELLOW}未找到setup.py，尝试安装flashinfer和flash_attn依赖...${NC}"
-        
-        # 安装flashinfer
-        download_flashinfer || echo -e "${YELLOW}flashinfer安装失败，但继续进行${NC}"
-        
-        # 安装flash_attn
-        install_flash_attn || echo -e "${YELLOW}flash_attn安装失败，但继续进行${NC}"
-        
-        echo -e "${GREEN}✓ 核心依赖安装完成${NC}"
-        return 0
     fi
 }
 
@@ -2837,16 +2831,11 @@ completion_message() {
     echo -e "  ○ 编译最大线程数: ${GREEN}${MAX_JOBS}${NC}"
     
     echo -e "\n${GREEN}✓ KTransformers安装完成!${NC}"
-    echo -e "\n${YELLOW}【启动指南】${NC}"
-    echo -e "1. ${YELLOW}进入环境:${NC}"
-    echo -e "   ${BLUE}conda activate ${ENV_NAME}${NC}"
-    echo -e "2. ${YELLOW}启动KTransformers:${NC}"
-    echo -e "   ${BLUE}cd ${INSTALL_DIR}${NC}"
-    echo -e "   ${BLUE}bash start.sh${NC}"
-    echo -e "\n${YELLOW}【支持的命令行参数】${NC}"
-    echo -e "运行 ${BLUE}bash start.sh --help${NC} 查看所有支持的选项"
-    echo -e "例如: ${BLUE}bash start.sh --model_path deepseek-ai/DeepSeek-LLM-7B-Chat${NC}"
-    
+    echo -e "${YELLOW}您可以通过以下命令进入环境:${NC}"
+    echo -e "${BLUE}  conda activate ${ENV_NAME}${NC}"
+    echo -e "${YELLOW}然后运行示例:${NC}"
+    echo -e "${BLUE}  cd ${INSTALL_DIR}/examples${NC}"
+    echo -e "${BLUE}  python run_demo.py${NC}"
     echo -e "\n${GREEN}祝您使用愉快!${NC}\n"
 }
 
@@ -2867,7 +2856,7 @@ main() {
     fi
     
     # 显示安装脚本版本信息
-    echo -e "${PURPLE}KTransformers 安装脚本 - 调试增强版${NC}"
+    echo -e "${PURPLE}KTransformers 安装脚本${NC}"
     echo -e "${PURPLE}当前时间: $(date)${NC}\n"
     
     # 检查并安装必要的工具
@@ -2882,7 +2871,7 @@ main() {
     # 检查并安装构建工具
     check_build_tools
     
-    # 检测CUDA版本 (只检测CUDA，不检测PyTorch)
+    # 检测CUDA版本
     detect_pytorch_cuda_version
     
     # 用于跟踪安装状态的变量
