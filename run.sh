@@ -2566,7 +2566,8 @@ is_china_ip() {
         local cn_time=$(ping -c 3 $cn_site 2>/dev/null | grep "avg" | awk -F'/' '{print $5}' || echo 999)
         local global_time=$(ping -c 3 $global_site 2>/dev/null | grep "avg" | awk -F'/' '{print $5}' || echo 999)
         
-        if [ $(echo "$cn_time < $global_time" | bc -l) -eq 1 ]; then
+        # 修复比较逻辑，确保是数值比较
+        if [ ! -z "$cn_time" ] && [ ! -z "$global_time" ] && (( $(echo "$cn_time < $global_time" | bc -l 2>/dev/null || echo 0) )); then
             log "DEBUG" "国内网站延迟($cn_time ms)低于国际网站($global_time ms)，可能位于中国网络环境"
             is_china=1
         else
