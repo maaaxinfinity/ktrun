@@ -1720,81 +1720,86 @@ install_pytorch() {
 
 # 6. 初始化git子模块
 init_git_submodules() {
-    echo -e "${BLUE}[步骤 6] 初始化git子模块${NC}"
+    log "INFO" "初始化子模块..."
     
-    # 获取绝对路径
-    if [[ "$INSTALL_DIR" != /* ]]; then
-        ACTUAL_INSTALL_DIR="$(pwd)/${INSTALL_DIR}"
-    else
-        ACTUAL_INSTALL_DIR="$INSTALL_DIR"
-    fi
-    
-    # 确保安装目录存在
-    if [ ! -d "$ACTUAL_INSTALL_DIR" ]; then
-        echo -e "${RED}× 安装目录不存在: $ACTUAL_INSTALL_DIR${NC}"
-        return 1
-    fi
-    
-    # 进入安装目录
-    cd "$ACTUAL_INSTALL_DIR" || {
-        echo -e "${RED}× 无法进入安装目录 $ACTUAL_INSTALL_DIR${NC}"
-        return 1
-    }
-    
-    echo -e "${YELLOW}[INFO] 初始化git子模块${NC}"
-    
-    if [ $USE_GHPROXY -eq 1 ]; then
-        # 如果使用代理，设置.gitmodules中的URL
-        echo -e "${YELLOW}[INFO] 使用代理配置子模块...${NC}"
-        git config submodule.recurse true
+    # 更新.gitmodules中的URL以使用代理
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+        log "INFO" "使用代理配置子模块URL..."
         
-        # 替换子模块中的URL
-        if [ $USE_GHPROXY -eq 1 ]; then
-            echo -e "${YELLOW}[INFO] 使用代理配置子模块...${NC}"
-            git config submodule.recurse true
-
-            # 递归更新所有子模块的URL
-            git submodule foreach --recursive '
-                if [ -f .gitmodules ]; then
-                    sed -i "s#url = https://github.com/#url = '${GHPROXY_URL}'/https://github.com/#g" .gitmodules
-                    git submodule sync
-                fi
-            '
+        # 检查.gitmodules文件是否存在
+        if [ -f ".gitmodules" ]; then
+            # 备份原始.gitmodules文件
+            cp .gitmodules .gitmodules.backup
+            
+            # 替换顶级.gitmodules中的URL
+            sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
+            
+            log "INFO" "更新.gitmodules中的URL以使用代理..."
+            git submodule sync
         fi
+    fi
     
-    # 初始化和更新子模块
-    echo -e "${YELLOW}[INFO] 初始化子模块...${NC}"
+    # 初始化顶级子模块
+    git submodule update --init
+    
+    # 递归处理所有子模块及其嵌套子模块的URL
+    if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
+        log "INFO" "递归更新所有子模块的URL以使用代理..."
+        
+        # 获取所有子模块路径
+        submodule_paths=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
+        
+        for submodule_path in $submodule_paths; do
+            log "INFO" "处理子模块: $submodule_path"
+            
+            # 进入子模块目录
+            if [ -d "$submodule_path" ]; then
+                (cd "$submodule_path" && {
+                    # 检查子模块中是否有自己的.gitmodules文件
+                    if [ -f ".gitmodules" ]; then
+                        log "INFO" "更新子模块 $submodule_path 中的.gitmodules"
+                        
+                        # 备份原始.gitmodules文件
+                        cp .gitmodules .gitmodules.backup
+                        
+                        # 替换子模块中的.gitmodules中的URL
+                        sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
+                        
+                        # 同步子模块中的子模块
+                        git submodule sync
+                        
+                        # 初始化和更新嵌套的子模块
+                        git submodule update --init
+                        
+                        # 递归处理嵌套子模块
+                        nested_submodule_paths=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
+                        for nested_path in $nested_submodule_paths; do
+                            log "INFO" "处理嵌套子模块: $nested_path"
+                            # 进入嵌套子模块目录
+                            if [ -d "$nested_path" ]; then
+                                (cd "$nested_path" && {
+                                    if [ -f ".gitmodules" ]; then
+                                        log "INFO" "更新嵌套子模块 $nested_path 中的.gitmodules"
+                                        cp .gitmodules .gitmodules.backup
+                                        sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
+                                        git submodule sync
+                                        git submodule update --init
+                                    fi
+                                })
+                            fi
+                        done
+                    fi
+                })
+            fi
+        done
+    fi
+    
+    # 最后再执行一次完整的递归更新
+    log "INFO" "完成子模块初始化..."
     git submodule update --init --recursive
     
-    local submodule_status=$?
-    if [ $submodule_status -ne 0 ]; then
-        echo -e "${RED}× 子模块初始化失败，尝试直接连接...${NC}"
-        
-        # 如果失败且使用了代理，尝试不使用代理
-        if [ $USE_GHPROXY -eq 1 ]; then
-            echo -e "${YELLOW}[INFO] 尝试不使用代理初始化...${NC}"
-            
-            # 恢复原始.gitmodules
-            if [ -f ".gitmodules" ]; then
-                sed -i 's#url = '${GHPROXY_URL}'/https://github.com/#url = https://github.com/#g' .gitmodules
-            fi
-            
-            # 重新尝试
-            git submodule update --init --recursive
-            if [ $? -eq 0 ]; then
-                echo -e "${GREEN}✓ 子模块初始化成功（不使用代理）${NC}"
-                return 0
-            else
-                echo -e "${RED}× 子模块初始化失败${NC}"
-                return 1
-            fi
-        else
-            return 1
-        fi
-    else
-        echo -e "${GREEN}✓ 子模块初始化成功${NC}"
-        return 0
-    fi
+    log "SUCCESS" "子模块初始化完成"
+    return 0
 }
 
 # 7. 安装libnuma库
