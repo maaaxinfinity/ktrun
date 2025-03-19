@@ -8,6 +8,16 @@
   <img src="https://img.shields.io/badge/语言-Bash-yellow" alt="语言">
 </div>
 
+## 🤗 最佳实践
+
+  目前已经测试成功一键部署的环境：
+  EPYC 9334QS*2 + NVIDIA 4090
+  EPYC 9375F + NVIDIA 4070tis
+  EPYC 9965*2 + NVIDIA 4090
+  EPYC 7532 + NVIDIA 3070
+
+ 一键部署并不是万能的，因为每个系统的环境都不一样，我们在Cuda 12.4 下测试通过，其他版本可能存在兼容性问题，请根据实际情况进行测试。
+
 ## 📋 简介
 
 KTransformers 是一个高性能的 Transformer 模型加速框架，专为混合推理优化设计。本项目提供了完整的自动化安装和启动流程，帮助您快速部署 KTransformers 环境并启动模型，包括所有必要的依赖项和配置。
@@ -33,6 +43,7 @@ KTransformers 是一个高性能的 Transformer 模型加速框架，专为混�
   - NVIDIA 驱动 (与 CUDA 兼容的版本)
   - Git
   - Python 3.11+
+  - **Cuda 12.4**
 
 ## 🚀 安装步骤
 
@@ -228,6 +239,10 @@ conda activate ktrans_main
 ```
 
 ---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=maaaxinfinity/ktrun&type=Date)](https://www.star-history.com/#maaaxinfinity/ktrun&Date)
 
 <div align="center">
   <p>© 2024-2025 Limitee. 保留所有权利。</p>
