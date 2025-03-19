@@ -179,22 +179,82 @@ show_selection_menu() {
         echo -e "│"
         echo -e "╰─ ${opt1_status} ${opt1} / ${opt2_status} ${opt2}"
         echo -e ""
-        read -p "请输入选项 [1/2]: " choice
+        read -p "请输入选项 [1/2] 或按左右方向键选择: " -n 1 choice
         
+        # 捕获特殊按键（方向键）
+        if [[ "$choice" == $'\e' ]]; then
+            read -t 0.1 -n 2 rest
+            if [[ "$rest" == "[C" ]]; then  # 右方向键
+                if [ "$selected" = "1" ]; then
+                    selected="2"
+                    opt1_status="○"
+                    opt2_status="●"
+                fi
+                echo -e "\r\033[K"  # 清除当前行
+                continue
+            elif [[ "$rest" == "[D" ]]; then  # 左方向键
+                if [ "$selected" = "2" ]; then
+                    selected="1"
+                    opt1_status="●"
+                    opt2_status="○"
+                fi
+                echo -e "\r\033[K"  # 清除当前行
+                continue
+            fi
+        fi
+        
+        # 回车键处理
+        if [[ "$choice" == "" ]]; then
+            echo ""
+            return $selected
+        fi
+        
+        # 数字选择处理
         case "$choice" in
             1)
+                echo ""
                 return 1
                 ;;
             2)
+                echo ""
                 return 2
                 ;;
-            "")
-                return $selected
-                ;;
             *)
-                echo -e "${YELLOW}请输入有效的选项: 1 或 2${NC}"
+                echo -e "\r\033[K${YELLOW}请输入有效的选项: 1, 2, 或使用方向键${NC}"
                 ;;
         esac
+    done
+}
+
+# 添加路径选择函数
+select_or_input_path() {
+    local title="$1"
+    local default_path="$2"
+    local path_type="$3"  # 描述这是什么路径
+    
+    while true; do
+        echo -e "\n╭─ ${title}"
+        echo -e "│"
+        echo -e "╰─ 默认路径: ${GREEN}${default_path}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认${path_type}路径?" "是" "否" "1"
+        local path_choice=$?
+        
+        if [ $path_choice -eq 1 ]; then
+            echo -e "${GREEN}✓ 使用默认${path_type}路径: ${default_path}${NC}"
+            echo "$default_path"
+            return 0
+        else
+            read -p "请输入${path_type}路径: " user_path
+            if [ -n "$user_path" ]; then
+                echo -e "${GREEN}✓ 使用自定义${path_type}路径: ${user_path}${NC}"
+                echo "$user_path"
+                return 0
+            else
+                echo -e "${YELLOW}路径不能为空，请重新选择${NC}"
+            fi
+        fi
     done
 }
 
@@ -242,20 +302,28 @@ configure_installation() {
     else
         echo -e "\n${BLUE}配置安装参数${NC}"
         
-
-        echo -e "${YELLOW}请输入安装路径 (默认: ${INSTALL_DIR}):${NC}"
-        read -r user_install_dir
-        if [ -n "$user_install_dir" ]; then
-            INSTALL_DIR="$user_install_dir"
-            echo -e "${GREEN}✓ 安装路径已更新为: ${INSTALL_DIR}${NC}"
-        fi
+        # 安装路径选择
+        INSTALL_DIR=$(select_or_input_path "请选择安装路径" "${INSTALL_DIR}" "安装")
         
-
-        echo -e "${YELLOW}请输入Conda环境名称 (默认: ${ENV_NAME}):${NC}"
-        read -r user_env_name
-        if [ -n "$user_env_name" ]; then
-            ENV_NAME="$user_env_name"
-            echo -e "${GREEN}✓ Conda环境名称已更新为: ${ENV_NAME}${NC}"
+        # Conda环境名称选择
+        echo -e "\n╭─ 请选择Conda环境名称"
+        echo -e "│"
+        echo -e "╰─ 默认环境名称: ${GREEN}${ENV_NAME}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认环境名称?" "是" "否" "1"
+        local env_choice=$?
+        
+        if [ $env_choice -eq 2 ]; then
+            read -p "请输入Conda环境名称: " user_env_name
+            if [ -n "$user_env_name" ]; then
+                ENV_NAME="$user_env_name"
+                echo -e "${GREEN}✓ Conda环境名称已更新为: ${ENV_NAME}${NC}"
+            else
+                echo -e "${YELLOW}使用默认环境名称: ${ENV_NAME}${NC}"
+            fi
+        else
+            echo -e "${GREEN}✓ 使用默认环境名称: ${ENV_NAME}${NC}"
         fi
         
         # 使用单选框选择NUMA环境变量设置
@@ -282,11 +350,25 @@ configure_installation() {
             echo -e "${GREEN}✓ 已禁用国内代理和镜像站点${NC}"
         fi
 
-        echo -e "${YELLOW}请输入编译最大线程数 (默认: ${MAX_JOBS}):${NC}"
-        read -r user_max_jobs
-        if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
-            MAX_JOBS="$user_max_jobs"
-            echo -e "${GREEN}✓ 编译最大线程数已更新为: ${MAX_JOBS}${NC}"
+        # 编译线程数选择
+        echo -e "\n╭─ 请选择编译最大线程数"
+        echo -e "│"
+        echo -e "╰─ 默认线程数: ${GREEN}${MAX_JOBS}${NC}"
+        echo -e ""
+        
+        show_selection_menu "是否使用默认线程数?" "是" "否" "1"
+        local jobs_choice=$?
+        
+        if [ $jobs_choice -eq 2 ]; then
+            read -p "请输入编译最大线程数: " user_max_jobs
+            if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
+                MAX_JOBS="$user_max_jobs"
+                echo -e "${GREEN}✓ 编译最大线程数已更新为: ${MAX_JOBS}${NC}"
+            else
+                echo -e "${YELLOW}使用默认线程数: ${MAX_JOBS}${NC}"
+            fi
+        else
+            echo -e "${GREEN}✓ 使用默认线程数: ${MAX_JOBS}${NC}"
         fi
         
         # 使用单选框选择调试模式
