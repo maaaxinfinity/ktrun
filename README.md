@@ -104,10 +104,19 @@ sudo ./run.sh
 
 ### 1. 获取启动脚本
 
+#### 方式〇：直接git clone吧
+
+```bash
+git clone https://github.com/maaaxinfinity/ktrun.git (github)
+git clone https://gitcode.com/Limitee/ktrun.git (gitcode)
+
+sudo bash run.sh
+```
+
 #### 方式一：从GitHub下载
 
 ```bash
-wget https://raw.githubusercontent.com/kvcache-ai/ktransformers/main/start.sh
+wget https://raw.githubusercontent.com/maaaxinfinity/ktrun/refs/heads/main/run.sh
 chmod +x start.sh
 ```
 
