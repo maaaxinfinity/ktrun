@@ -50,10 +50,19 @@ KTransformers 是一个高性能的 Transformer 模型加速框架，专为混�
 
 ### 1. 获取安装脚本
 
+#### 方式〇：直接git clone吧
+ 
+ ```bash
+ git clone https://github.com/maaaxinfinity/ktrun.git (github)
+ git clone https://gitcode.com/Limitee/ktrun.git (gitcode)
+ cd ./ktrun
+ sudo bash run.sh
+ ```
+
 #### 方式一：从GitHub下载
 
 ```bash
-wget https://raw.githubusercontent.com/kvcache-ai/ktransformers/main/run.sh
+wget https://raw.githubusercontent.com/maaaxinfinity/ktrun/refs/heads/main/run.sh
 chmod +x run.sh
 ```
 
