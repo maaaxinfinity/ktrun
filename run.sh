@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # 脚本版本信息
-# 最后更新: 2025-03-20
-# 版本: 1.1.0
+# 最后更新: 2025-03-24
+# 版本: 1.1.1
 # 作者: Limitee
 
 # =====================================================
@@ -132,13 +132,11 @@ NC='\033[0m'
 #--------------------
 # 安装配置
 INSTALL_DIR="$(pwd)/workspace"  # 安装目录
+ENV_INSTALL_DIR=""              # 环境安装目录，将在configure_installation中设置
+CONDA_BASE_DIR=""               # Conda基础目录，将在configure_installation中设置
 ENV_NAME="ktrans_main"          # Conda环境名称
 MAX_JOBS=$(nproc)               # 编译使用的最大线程数
-USE_NUMA=0                      # 是否启用NUMA环境变量
-
-# 用户配置
-TARGET_USER=""                  # 目标安装用户
-TARGET_HOME=""                  # 目标用户的home目录
+USE_NUMA=0                      # 是否启用NUMA环境变量（默认不启用）
 
 # 网络与代理配置
 USE_GHPROXY=0                   # 是否使用国内代理加速
@@ -151,77 +149,99 @@ FAST_MODE=0                     # 快速安装模式开关
 
 # 内部使用变量
 LOG_FILE=""                     # 日志文件路径
-CUSTOM_PATH=""                  # 自定义PATH
 
-# 添加单选框交互函数
-show_selection_menu() {
+
+# 添加多选项选择函数
+show_multi_selection_menu() {
     local title="$1"
-    local opt1="$2"
-    local opt2="$3"
-    local default_opt="$4"
+    local default_value="$2"  # 新增：默认值参数
+    shift 2
+    local options=("$@")
+    local num_options=${#options[@]}
+    local selected=1
+    local statuses=()
     
-    local selected=""
-    local opt1_status="○"
-    local opt2_status="○"
-    
-    # 设置默认选项
-    if [ "$default_opt" = "1" ]; then
-        opt1_status="\033[1;32m●\033[0m"  # 绿色高亮
-        selected="1"
-    else
-        opt2_status="\033[1;32m●\033[0m"  # 绿色高亮
-        selected="2"
+    # 根据默认值设置初始选择
+    # 如果默认值是"是"，选择第一个选项；如果是"否"，选择第二个选项
+    if [ "$default_value" = "否" ]; then
+        selected=2
+    elif [ "$default_value" = "是" ]; then
+        selected=1
     fi
     
-    while true; do
+    # 初始化状态数组
+    for ((i=1; i<=num_options; i++)); do
+        if [ $i -eq $selected ]; then
+            statuses+=("\033[1;32m●\033[0m")  # 绿色高亮
+        else
+            statuses+=("○")
+        fi
+    done
+    
+    # 清屏并显示选项
+    render_menu() {
+        clear  # 清屏
+        echo "+=======================================+"
+        echo -e "|\033[0;1;31;91m╦\033[0;1;33;93m╔═\033[0;1;32;92m┌┬┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌─┐\033[0;1;35;95m┌┐┌\033[0;1;31;91m┌─┐\033[0;1;33;93m┌─┐\033[0;1;32;92m┌─┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌┬┐\033[0;1;35;95m┌─┐\033[0;1;31;91m┬─┐\033[0;1;33;93m┌─┐\033[0m|"
+        echo -e "|\033[0;1;32;92m╠\033[0;1;36;96m╩╗\033[0;1;34;94m │ \033[0;1;35;95m├┬┘\033[0;1;31;91m├─┤\033[0;1;33;93m│││\033[0;1;32;92m└─┐\033[0;1;36;96m├┤ \033[0;1;34;94m│ │\033[0;1;35;95m├┬┘\033[0;1;31;91m│││\033[0;1;33;93m├┤ \033[0;1;32;92m├┬┘\033[0;1;36;96m└─┐\033[0m|"
+        echo -e "|\033[0;1;34;94m╩\033[0;1;35;95m ╩\033[0;1;31;91m ┴ \033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m┘└┘\033[0;1;34;94m└─┘\033[0;1;35;95m└  \033[0;1;31;91m└─┘\033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m└─┘\033[0;1;34;94m┴└─\033[0;1;35;95m└─┘\033[0m|"
+        echo "+=======================================+"
+        echo -e "\n${BLUE}===== KTransformers 安装配置 =====${NC}"
+        
+        # 显示选项
         echo -e "\n╭─ ${title}"
+        if [ -n "$default_value" ]; then
+            echo -e "│"
+            echo -e "├─ 默认值: ${GREEN}${default_value}${NC}"
+        fi
         echo -e "│"
-        echo -e "╰─ ${opt1_status} ${opt1} / ${opt2_status} ${opt2}"
-        echo -e ""
-        read -p "请输入选项 [1/2] 或按左右方向键选择: " -n 1 choice
+        echo -ne "╰─ "
         
-        # 捕获特殊按键（方向键）
-        if [[ "$choice" == $'\e' ]]; then
-            read -t 0.1 -n 2 rest
-            if [[ "$rest" == "[C" ]]; then  # 右方向键
-                if [ "$selected" = "1" ]; then
-                    selected="2"
-                    opt1_status="○"
-                    opt2_status="\033[1;32m●\033[0m"  # 绿色高亮
-                fi
-                echo -e "\r\033[K"  # 清除当前行
-                continue
-            elif [[ "$rest" == "[D" ]]; then  # 左方向键
-                if [ "$selected" = "2" ]; then
-                    selected="1"
-                    opt1_status="\033[1;32m●\033[0m"  # 绿色高亮
-                    opt2_status="○"
-                fi
-                echo -e "\r\033[K"  # 清除当前行
-                continue
+        for ((i=0; i<num_options; i++)); do
+            echo -ne "${statuses[$i]} ${options[$i]}"
+            if [ $i -lt $((num_options-1)) ]; then
+                echo -ne " | "
             fi
-        fi
+        done
+        echo -e "\n"
+        echo -e "使用方向键选择，回车确认"
+    }
+    
+    # 初始渲染
+    render_menu
+    
+    # 用于存储上一次的选择
+    local last_selected=$selected
+    
+    while true; do
+        # 读取用户输入
+        read -s -n 1 key
         
-        # 回车键处理
-        if [[ "$choice" == "" ]]; then
-            echo ""
-            return $selected
+        # 处理方向键
+        if [[ $key == $'\e' ]]; then
+            read -s -n 2 rest
+            if [[ $rest == "[C" ]]; then  # 右方向键
+                statuses[$((selected-1))]="○"
+                selected=$((selected % num_options + 1))
+                statuses[$((selected-1))]="\033[1;32m●\033[0m"
+                last_selected=$selected
+                render_menu
+            elif [[ $rest == "[D" ]]; then  # 左方向键
+                statuses[$((selected-1))]="○"
+                selected=$(((selected - 2 + num_options) % num_options + 1))
+                statuses[$((selected-1))]="\033[1;32m●\033[0m"
+                last_selected=$selected
+                render_menu
+            fi
+        elif [[ $key == "" ]]; then  # 回车键
+            # 保存当前选择结果
+            local result=$selected
+            
+            echo -e "\n${GREEN}✓ 已选择: ${options[$((result-1))]}${NC}"
+            sleep 0.3
+            
+            return $result
         fi
-        
-        # 数字选择处理
-        case "$choice" in
-            1)
-                echo ""
-                return 1
-                ;;
-            2)
-                echo ""
-                return 2
-                ;;
-            *)
-                echo -e "\r\033[K${YELLOW}请输入有效的选项: 1, 2, 或使用方向键${NC}"
-                ;;
-        esac
     done
 }
 
@@ -229,16 +249,16 @@ show_selection_menu() {
 select_or_input_path() {
     local title="$1"
     local default_path="$2"
-    local path_type="$3"  # 描述这是什么路径
+    local path_type="$3"
     local result_path=""
     
     while true; do
         echo -e "\n╭─ ${title}"
         echo -e "│"
-        echo -e "╰─ 默认路径: ${GREEN}${default_path}${NC}"
+        echo -e "├─ 默认路径: ${GREEN}${default_path}${NC}"
         echo -e ""
         
-        show_selection_menu "是否使用默认${path_type}路径?" "是" "否" "1"
+        show_multi_selection_menu "是否使用默认${path_type}路径?" "是" "是" "否"
         local path_choice=$?
         
         if [ $path_choice -eq 1 ]; then
@@ -256,128 +276,94 @@ select_or_input_path() {
             fi
         fi
     done
-    
-    # 单独一行返回路径值，确保不包含其他输出
-    echo "$result_path"
+
 }
 
-# 获取可用的用户列表
-get_available_users() {
-    # 获取所有普通用户(UID >= 1000且UID < 65534)
-    local users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
-    
-    # 如果当前是root用户，确保列表中包含当前的SUDO_USER
-    if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
-        local found=0
-        for user in "${users[@]}"; do
-            if [ "$user" = "$SUDO_USER" ]; then
-                found=1
-                break
-            fi
-        done
-        if [ $found -eq 0 ]; then
-            users+=("$SUDO_USER")
-        fi
-    fi
-    
-    # 如果用户列表为空，添加当前用户
-    if [ ${#users[@]} -eq 0 ]; then
-        users=("$(whoami)")
-    fi
-    
-    echo "${users[@]}"
-}
-
-# 用户选择功能
+# 用户选择函数
 select_install_user() {
-    local available_users=($@)
-    local default_user=""
-    local default_idx=0
+    echo -e "\n${BLUE}===== 选择安装用户 =====${NC}"
     
-    # 设置默认用户
-    if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+    # 获取所有普通用户列表
+    local all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+    all_users=("root" "${all_users[@]}")
+    
+    # 准备用户选项数组（包含用户名和主目录信息）
+    local user_options=()
+    local default_user=""
+    local default_home=""
+    
+    # 设置默认用户优先级：SUDO_USER > 第一个非root用户 > root
+    if [ -n "$SUDO_USER" ]; then
         default_user="$SUDO_USER"
+        default_home="/home/$SUDO_USER"
+    elif [ ${#all_users[@]} -gt 1 ]; then
+        # 如果有非root用户，选择第一个非root用户作为默认
+        default_user="${all_users[1]}"  # 索引1是第一个非root用户
+        default_home="/home/${all_users[1]}"
     else
-        default_user="$(whoami)"
+        # 如果只有root用户
+        default_user="root"
+        default_home="/root"
     fi
     
-    # 寻找默认用户的索引
-    for i in "${!available_users[@]}"; do
-        if [ "${available_users[$i]}" = "$default_user" ]; then
-            default_idx=$i
-            break
-        fi
-    done
-    
-    echo -e "\n╭─ 请选择安装用户"
-    echo -e "│"
-    echo -e "╰─ 可用用户:"
-    
-    # 使用单选框风格显示用户列表
-    local selected_idx=$default_idx
-    local options=()
-    for user in "${available_users[@]}"; do
-        options+=("$user")
-    done
-    
-    # 显示用户选择菜单
-    for i in "${!options[@]}"; do
-        if [ $i -eq $selected_idx ]; then
-            echo -e "   ${GREEN}● ${options[$i]}${NC} (默认)"
+    # 构建选项数组
+    for user in "${all_users[@]}"; do
+        local home_dir
+        if [ "$user" = "root" ]; then
+            home_dir="/root"
         else
-            echo -e "   ○ ${options[$i]}"
+            home_dir="/home/$user"
         fi
+        user_options+=("$user ($home_dir)")
     done
     
-    echo ""
-    show_selection_menu "是否使用默认用户 ${available_users[$default_idx]} ?" "是" "否" "1"
+    # 使用新的多选项选择函数，显示默认用户
+    show_multi_selection_menu "选择安装用户" "${default_user} (${default_home})" "${user_options[@]}"
     local choice=$?
     
-    if [ $choice -eq 1 ]; then
-        # 使用默认用户
-        echo -e "${GREEN}✓ 使用默认用户: ${available_users[$default_idx]}${NC}"
-        echo "${available_users[$default_idx]}"
+    # 设置选中的用户
+    INSTALL_USER="${all_users[$((choice-1))]}"
+    if [ "$INSTALL_USER" = "root" ]; then
+        INSTALL_HOME="/root"
     else
-        # 选择其他用户
-        echo -e "请选择用户:"
-        select user_option in "${available_users[@]}"; do
-            if [ -n "$user_option" ]; then
-                echo -e "${GREEN}✓ 已选择用户: ${user_option}${NC}"
-                echo "$user_option"
-                break
-            else
-                echo -e "${YELLOW}请选择有效的用户${NC}"
-            fi
-        done
+        INSTALL_HOME="/home/$INSTALL_USER"
     fi
+    
+    # 更新安装目录
+    INSTALL_DIR="$INSTALL_HOME/ktransformers"
+    
+    # 验证目录权限
+    if [ ! -d "$INSTALL_HOME" ]; then
+        echo -e "${RED}× 用户主目录不存在: $INSTALL_HOME${NC}"
+        return 1
+    fi
+    
+    # 检查目录权限
+    if ! sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+        echo -e "${RED}× 无法在用户目录创建安装目录${NC}"
+        return 1
+    fi
+    
+    # 清理测试目录
+    rmdir "$INSTALL_DIR"
+    
+    return 0
 }
 
-# 获取用户的home目录
-get_user_home() {
-    local username="$1"
-    local home_dir
-    
-    if [ "$username" = "root" ]; then
-        home_dir="/root"
-    else
-        home_dir=$(getent passwd "$username" | cut -d: -f6)
-        if [ -z "$home_dir" ]; then
-            home_dir="/home/$username"
-        fi
-    fi
-    
-    echo "$home_dir"
-}
 
 # 用户配置部分
 configure_installation() {
+        echo "+=======================================+"
+        echo -e "|\033[0;1;31;91m╦\033[0;1;33;93m╔═\033[0;1;32;92m┌┬┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌─┐\033[0;1;35;95m┌┐┌\033[0;1;31;91m┌─┐\033[0;1;33;93m┌─┐\033[0;1;32;92m┌─┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌┬┐\033[0;1;35;95m┌─┐\033[0;1;31;91m┬─┐\033[0;1;33;93m┌─┐\033[0m|"
+        echo -e "|\033[0;1;32;92m╠\033[0;1;36;96m╩╗\033[0;1;34;94m │ \033[0;1;35;95m├┬┘\033[0;1;31;91m├─┤\033[0;1;33;93m│││\033[0;1;32;92m└─┐\033[0;1;36;96m├┤ \033[0;1;34;94m│ │\033[0;1;35;95m├┬┘\033[0;1;31;91m│││\033[0;1;33;93m├┤ \033[0;1;32;92m├┬┘\033[0;1;36;96m└─┐\033[0m|"
+        echo -e "|\033[0;1;34;94m╩\033[0;1;35;95m ╩\033[0;1;31;91m ┴ \033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m┘└┘\033[0;1;34;94m└─┘\033[0;1;35;95m└  \033[0;1;31;91m└─┘\033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m└─┘\033[0;1;34;94m┴└─\033[0;1;35;95m└─┘\033[0m|"
+        echo "+=======================================+"
 
-    echo "+=======================================+"
-    echo -e "|\033[0;1;31;91m╦\033[0;1;33;93m╔═\033[0;1;32;92m┌┬┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌─┐\033[0;1;35;95m┌┐┌\033[0;1;31;91m┌─┐\033[0;1;33;93m┌─┐\033[0;1;32;92m┌─┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌┬┐\033[0;1;35;95m┌─┐\033[0;1;31;91m┬─┐\033[0;1;33;93m┌─┐\033[0m|"
-    echo -e "|\033[0;1;32;92m╠\033[0;1;36;96m╩╗\033[0;1;34;94m │ \033[0;1;35;95m├┬┘\033[0;1;31;91m├─┤\033[0;1;33;93m│││\033[0;1;32;92m└─┐\033[0;1;36;96m├┤ \033[0;1;34;94m│ │\033[0;1;35;95m├┬┘\033[0;1;31;91m│││\033[0;1;33;93m├┤ \033[0;1;32;92m├┬┘\033[0;1;36;96m└─┐\033[0m|"
-    echo -e "|\033[0;1;34;94m╩\033[0;1;35;95m ╩\033[0;1;31;91m ┴ \033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m┘└┘\033[0;1;34;94m└─┘\033[0;1;35;95m└  \033[0;1;31;91m└─┘\033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m└─┘\033[0;1;34;94m┴└─\033[0;1;35;95m└─┘\033[0m|"
-    echo "+=======================================+"
-    
+    # 选择安装用户
+    if ! select_install_user; then
+        echo -e "${RED}× 用户选择失败${NC}"
+        exit 1
+    fi
 
     if [ $FAST_MODE -eq 1 ]; then
         echo -e "${BLUE}===== 快速模式 - 使用默认配置 =====${NC}"
@@ -410,59 +396,40 @@ configure_installation() {
 
     if [ $FAST_MODE -eq 1 ]; then
         echo -e "\n${YELLOW}快速模式：使用默认配置，跳过参数修改${NC}"
-        # 在快速模式下设置默认用户
-        if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
-            TARGET_USER="$SUDO_USER"
-        else
-            TARGET_USER="$(whoami)"
-        fi
-        TARGET_HOME=$(get_user_home "$TARGET_USER")
-        INSTALL_DIR="${TARGET_HOME}/ktransformers"
     else
         echo -e "\n${BLUE}配置安装参数${NC}"
         
-        # 用户选择功能
-        echo -e "\n${BLUE}选择安装用户${NC}"
-        local available_users=($(get_available_users))
-        TARGET_USER=$(select_install_user "${available_users[@]}")
-        TARGET_HOME=$(get_user_home "$TARGET_USER")
-        
-        # 根据选择的用户设置默认安装目录
-        local default_install_dir="${TARGET_HOME}/ktransformers"
-        
         # 安装路径选择
-        echo -e "\n╭─ 请选择安装路径"
-        echo -e "│"
-        echo -e "╰─ 默认路径: ${GREEN}${default_install_dir}${NC}"
-        echo -e ""
-        
-        show_selection_menu "是否使用默认安装路径?" "是" "否" "1"
+        local default_install_dir="${INSTALL_DIR}"
+        show_multi_selection_menu "是否使用默认安装路径?" "${default_install_dir}" "是" "否"
         local path_choice=$?
         
         if [ $path_choice -eq 1 ]; then
             echo -e "${GREEN}✓ 使用默认安装路径: ${default_install_dir}${NC}"
+            sleep 0.3
             INSTALL_DIR="${default_install_dir}"
         else
             read -p "请输入安装路径: " user_path
             if [ -n "$user_path" ]; then
                 echo -e "${GREEN}✓ 使用自定义安装路径: ${user_path}${NC}"
+                sleep 0.3
                 INSTALL_DIR="$user_path"
             else
                 echo -e "${YELLOW}路径不能为空，使用默认路径: ${default_install_dir}${NC}"
+                sleep 0.3
                 INSTALL_DIR="${default_install_dir}"
             fi
         fi
-        
+
         # 确保INSTALL_DIR是纯字符串，不包含格式字符
         INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
         
-        # Conda环境名称选择
-        echo -e "\n╭─ 请选择Conda环境名称"
-        echo -e "│"
-        echo -e "╰─ 默认环境名称: ${GREEN}${ENV_NAME}${NC}"
-        echo -e ""
+        # 设置环境安装路径
+        ENV_INSTALL_DIR="${INSTALL_DIR}/envs"
+        CONDA_BASE_DIR="${INSTALL_DIR}/conda"
         
-        show_selection_menu "是否使用默认环境名称?" "是" "否" "1"
+        # Conda环境名称选择
+        show_multi_selection_menu "是否使用默认环境名称?" "${ENV_NAME}" "是" "否"
         local env_choice=$?
         
         if [ $env_choice -eq 2 ]; then
@@ -470,44 +437,46 @@ configure_installation() {
             if [ -n "$user_env_name" ]; then
                 ENV_NAME="$user_env_name"
                 echo -e "${GREEN}✓ Conda环境名称已更新为: ${ENV_NAME}${NC}"
+                sleep 0.3
             else
                 echo -e "${YELLOW}使用默认环境名称: ${ENV_NAME}${NC}"
+                sleep 0.3
             fi
         else
             echo -e "${GREEN}✓ 使用默认环境名称: ${ENV_NAME}${NC}"
+            sleep 0.3
         fi
         
-        # 使用单选框选择NUMA环境变量设置
-        show_selection_menu "是否启用USE_NUMA环境变量?" "是" "否" "2"
+        # NUMA环境变量设置
+        show_multi_selection_menu "是否启用USE_NUMA环境变量?" "否" "是" "否"
         local numa_choice=$?
         
         if [ $numa_choice -eq 1 ]; then
             USE_NUMA=1
             echo -e "${GREEN}✓ 已启用USE_NUMA环境变量${NC}"
+            sleep 0.3
         else
             USE_NUMA=0
             echo -e "${GREEN}✓ 已禁用USE_NUMA环境变量${NC}"
+            sleep 0.3
         fi
         
-        # 添加是否使用国内代理的选项，使用改进的选择界面
-        show_selection_menu "是否使用国内代理和镜像站点?" "是" "否" "1"
+        # 国内代理选择
+        show_multi_selection_menu "是否使用国内代理和镜像站点?" "是" "是" "否"
         local proxy_choice=$?
         
         if [ $proxy_choice -eq 1 ]; then
             USE_GHPROXY=1
             echo -e "${GREEN}✓ 已启用国内代理和镜像站点${NC}"
+            sleep 0.3
         else
             USE_GHPROXY=0
             echo -e "${GREEN}✓ 已禁用国内代理和镜像站点${NC}"
+            sleep 0.3
         fi
 
         # 编译线程数选择
-        echo -e "\n╭─ 请选择编译最大线程数"
-        echo -e "│"
-        echo -e "╰─ 默认线程数: ${GREEN}${MAX_JOBS}${NC}"
-        echo -e ""
-        
-        show_selection_menu "是否使用默认线程数?" "是" "否" "1"
+        show_multi_selection_menu "是否使用默认线程数?" "${MAX_JOBS}" "是" "否"
         local jobs_choice=$?
         
         if [ $jobs_choice -eq 2 ]; then
@@ -515,32 +484,37 @@ configure_installation() {
             if [ -n "$user_max_jobs" ] && [ "$user_max_jobs" -gt 0 ] 2>/dev/null; then
                 MAX_JOBS="$user_max_jobs"
                 echo -e "${GREEN}✓ 编译最大线程数已更新为: ${MAX_JOBS}${NC}"
+                sleep 0.3
             else
                 echo -e "${YELLOW}使用默认线程数: ${MAX_JOBS}${NC}"
             fi
         else
             echo -e "${GREEN}✓ 使用默认线程数: ${MAX_JOBS}${NC}"
+            sleep 0.3
         fi
         
-        # 使用单选框选择调试模式
-        show_selection_menu "是否启用调试模式?" "是" "否" "2"
+        # 调试模式选择
+        show_multi_selection_menu "是否启用调试模式?" "否" "是" "否"
         local debug_choice=$?
         
         if [ $debug_choice -eq 1 ]; then
             DEBUG_MODE=1
             echo -e "${GREEN}✓ 已启用调试模式${NC}"
+            sleep 0.3
         else
             DEBUG_MODE=0
             echo -e "${GREEN}✓ 已禁用调试模式${NC}"
+            sleep 0.3
         fi
     fi
     
 
     echo -e "\n${BLUE}=== 安装配置摘要 ===${NC}"
-    echo -e "${BLUE}● 安装用户: ${GREEN}${TARGET_USER}${NC}"
-    echo -e "${BLUE}● 用户主目录: ${GREEN}${TARGET_HOME}${NC}"
+    echo -e "${BLUE}● 安装用户: ${GREEN}${INSTALL_USER}${NC}"
     echo -e "${BLUE}● 安装路径: ${GREEN}${INSTALL_DIR}${NC}"
-    echo -e "${BLUE}● Conda环境: ${GREEN}${ENV_NAME}${NC}"
+    echo -e "${BLUE}● 环境安装路径: ${GREEN}${ENV_INSTALL_DIR}${NC}"
+    echo -e "${BLUE}● Conda基础路径: ${GREEN}${CONDA_BASE_DIR}${NC}"
+    echo -e "${BLUE}● Conda环境名称: ${GREEN}${ENV_NAME}${NC}"
     echo -e "${BLUE}● GPU设备: ${GREEN}${gpu_info}${NC}"
     echo -e "${BLUE}● CUDA版本: ${GREEN}${cuda_info}${NC}"
     echo -e "${BLUE}● USE_NUMA: ${GREEN}$([ $USE_NUMA -eq 1 ] && echo "启用" || echo "禁用")${NC}"
@@ -1126,38 +1100,10 @@ clone_repo() {
         fi
     else
         echo -e "${YELLOW}[INFO] 创建目录: $INSTALL_DIR${NC}"
-        
-        # 检查当前用户是否有权限创建目录
-        local parent_dir=$(dirname "$INSTALL_DIR")
-        if [ ! -d "$parent_dir" ]; then
-            mkdir -p "$parent_dir" || {
-                echo -e "${RED}× 无法创建父目录: $parent_dir${NC}"
-                return 1
-            }
-            
-            # 如果是以root身份运行且目标用户不是root，设置目录所有者
-            if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-                chown "$TARGET_USER" "$parent_dir"
-            fi
-        fi
-        
-        # 创建安装目录
-        if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-            # 以root身份为目标用户创建目录
-            mkdir -p "$INSTALL_DIR" || {
-                echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
-                return 1
-            }
-            chown "$TARGET_USER" "$INSTALL_DIR"
-            echo -e "${GREEN}✓ 创建目录并设置所有者为 $TARGET_USER: $INSTALL_DIR${NC}"
-        else
-            # 以当前用户身份创建目录
-            mkdir -p "$INSTALL_DIR" || {
-                echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
-                return 1
-            }
-            echo -e "${GREEN}✓ 创建目录: $INSTALL_DIR${NC}"
-        fi
+        mkdir -p "$INSTALL_DIR" || {
+            echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
+            return 1
+        }
     fi
     
     # 根据用户选择设置不同的代理URL
@@ -1172,79 +1118,27 @@ clone_repo() {
     
     echo -e "${YELLOW}[INFO] 开始$([ $USE_GHPROXY -eq 1 ] && echo "使用${GHPROXY_URL}代理")克隆...${NC}"
     
-    # 克隆仓库 - 根据不同权限情况处理
-    local clone_command=""
-    local clone_status=0
-    
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        # 以root身份为非root用户克隆
-        echo -e "${YELLOW}[INFO] 以root身份为用户 $TARGET_USER 克隆仓库${NC}"
-        cd "$(dirname "$INSTALL_DIR")" || return 1
-        
-        # 如果目录已存在但为空，确保所有权正确
-        if [ -d "$INSTALL_DIR" ]; then
-            chown "$TARGET_USER" "$INSTALL_DIR"
-        fi
-        
-        # 使用su命令以目标用户身份克隆
-        clone_command="cd \"$(dirname "$INSTALL_DIR")\" && git clone \"$clone_url\" \"$(basename "$INSTALL_DIR")\""
-        if su - "$TARGET_USER" -c "$clone_command"; then
-            echo -e "${GREEN}✓ 仓库克隆成功${NC}"
-            clone_status=0
-        else
-            clone_status=1
-        fi
+    # 克隆仓库
+    if git clone "$clone_url" "$INSTALL_DIR"; then
+        echo -e "${GREEN}✓ 仓库克隆成功${NC}"
+        return 0
     else
-        # 直接以当前用户身份克隆
-        cd "$(dirname "$INSTALL_DIR")" || return 1
-        
-        if git clone "$clone_url" "$(basename "$INSTALL_DIR")"; then
-            echo -e "${GREEN}✓ 仓库克隆成功${NC}"
-            clone_status=0
-        else
-            clone_status=1
-        fi
-    fi
-    
-    # 处理克隆失败的情况
-    if [ $clone_status -eq 1 ]; then
         # 如果使用代理失败，尝试直接连接
         if [ $USE_GHPROXY -eq 1 ]; then
             echo -e "${YELLOW}[WARN] 使用代理克隆失败，尝试直接连接...${NC}"
             
-            if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-                # 以root身份为非root用户克隆
-                clone_command="cd \"$(dirname "$INSTALL_DIR")\" && git clone \"$repo_url\" \"$(basename "$INSTALL_DIR")\""
-                if su - "$TARGET_USER" -c "$clone_command"; then
-                    echo -e "${GREEN}✓ 直接克隆仓库成功${NC}"
-                    return 0
-                else
-                    echo -e "${RED}× 仓库克隆失败${NC}"
-                    return 1
-                fi
+            if git clone "$repo_url" "$INSTALL_DIR"; then
+                echo -e "${GREEN}✓ 直接克隆仓库成功${NC}"
+                return 0
             else
-                # 直接以当前用户身份克隆
-                if git clone "$repo_url" "$(basename "$INSTALL_DIR")"; then
-                    echo -e "${GREEN}✓ 直接克隆仓库成功${NC}"
-                    return 0
-                else
-                    echo -e "${RED}× 仓库克隆失败${NC}"
-                    return 1
-                fi
+                echo -e "${RED}× 仓库克隆失败${NC}"
+                return 1
             fi
         else
             echo -e "${RED}× 仓库克隆失败${NC}"
             return 1
         fi
     fi
-    
-    # 确保安装目录中的文件和子目录归属于目标用户
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        echo -e "${YELLOW}[INFO] 设置 $INSTALL_DIR 的所有者为 $TARGET_USER${NC}"
-        chown -R "$TARGET_USER" "$INSTALL_DIR"
-    fi
-    
-    return 0
 }
 
 # 3. 检测conda
@@ -1253,63 +1147,105 @@ install_conda() {
     
     # 记录当前用户信息
     local current_user=$(whoami)
+    local non_root_user=""
     
-    echo -e "${YELLOW}检测到当前用户: $current_user, 目标用户: $TARGET_USER${NC}"
+    # 如果当前是root用户，尝试找到一个非root用户
+    if [ "$(id -u)" -eq 0 ]; then
+        non_root_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+        if [ -z "$non_root_user" ]; then
+            non_root_user=$SUDO_USER
+        fi
+        if [ -z "$non_root_user" ]; then
+            echo -e "${YELLOW}未找到非root用户，将使用当前用户${NC}"
+            non_root_user="root"
+        fi
+    else
+        non_root_user=$current_user
+    fi
+    
+    echo -e "${YELLOW}检测到用户: $current_user, 目标用户: $non_root_user${NC}"
     
     # 检查所有用户的conda安装
     local found_conda=0
     local found_conda_path=""
+    local all_users=()
     
-    # 首先检查目标用户的conda安装
-    local target_home=$(get_user_home "$TARGET_USER")
-    local possible_conda_paths=(
-        "$target_home/miniconda3/bin/conda"
-        "$target_home/anaconda3/bin/conda"
-        "$target_home/conda/bin/conda"
-    )
+    # 获取所有普通用户列表
+    if [ -f "/etc/passwd" ]; then
+        all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+        echo -e "${YELLOW}系统中的普通用户: ${all_users[*]}${NC}"
+    fi
     
-    # 特别检查目标用户的conda
-    echo -e "${YELLOW}检查目标用户 $TARGET_USER 的conda安装...${NC}"
+    # 添加当前用户和非root用户到检查列表
+    all_users+=("$current_user")
+    if [ "$non_root_user" != "$current_user" ] && [ "$non_root_user" != "root" ]; then
+        all_users+=("$non_root_user")
+    fi
     
-    for conda_path in "${possible_conda_paths[@]}"; do
-        if [ -f "$conda_path" ]; then
-            found_conda=1
-            found_conda_path=$conda_path
-            echo -e "${GREEN}✓ 在目标用户 $TARGET_USER 目录找到conda: ${conda_path}${NC}"
-            break
-        fi
-    done
+    # 去重
+    all_users=($(echo "${all_users[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
     
-    # 如果没有找到目标用户的conda，检查当前环境中是否有conda命令
-    if [ $found_conda -eq 0 ]; then
-        if command_exists conda; then
-            found_conda=1
-            found_conda_path=$(which conda)
-            echo -e "${GREEN}✓ 当前环境中找到conda: $found_conda_path${NC}"
-        else
-            # 检查系统目录
-            local system_conda_paths=(
-                "/usr/local/miniconda3/bin/conda"
-                "/usr/local/anaconda3/bin/conda"
-                "/usr/local/conda/bin/conda"
-                "/opt/conda/bin/conda"
+    echo -e "${YELLOW}将检查以下用户的conda安装: ${all_users[*]}${NC}"
+    
+    # 先检查当前环境中是否有conda命令
+    if command_exists conda; then
+        found_conda=1
+        found_conda_path=$(which conda)
+        echo -e "${GREEN}✓ 当前环境中找到conda: $found_conda_path${NC}"
+    else
+        # 检查所有用户的可能conda安装路径
+        for user in "${all_users[@]}"; do
+            local home_dir
+            
+            if [ "$user" = "root" ]; then
+                home_dir="/root"
+            else
+                home_dir="/home/$user"
+            fi
+            
+            echo -e "${YELLOW}检查用户 $user 的conda安装 ($home_dir)${NC}"
+            
+            local possible_conda_paths=(
+                "$home_dir/miniconda3/bin/conda"
+                "$home_dir/anaconda3/bin/conda"
+                "$home_dir/conda/bin/conda"
             )
             
-            for conda_path in "${system_conda_paths[@]}"; do
+            for conda_path in "${possible_conda_paths[@]}"; do
                 if [ -f "$conda_path" ]; then
                     found_conda=1
                     found_conda_path=$conda_path
-                    echo -e "${GREEN}✓ 在系统目录找到conda: ${conda_path}${NC}"
-                    break
+                    echo -e "${GREEN}✓ 在用户 $user 目录找到conda: ${conda_path}${NC}"
+                    break 2
                 fi
             done
-        fi
+        done
+        
+        # 检查系统目录
+        local system_conda_paths=(
+            "/usr/local/miniconda3/bin/conda"
+            "/usr/local/anaconda3/bin/conda"
+            "/usr/local/conda/bin/conda"
+            "/opt/conda/bin/conda"
+        )
+        
+        for conda_path in "${system_conda_paths[@]}"; do
+            if [ -f "$conda_path" ]; then
+                found_conda=1
+                found_conda_path=$conda_path
+                echo -e "${GREEN}✓ 在系统目录找到conda: ${conda_path}${NC}"
+                break
+            fi
+        done
     fi
     
     # 如果找到了conda
     if [ $found_conda -eq 1 ]; then
         local conda_base_dir=$(dirname $(dirname "$found_conda_path"))
         echo -e "${GREEN}✓ 找到conda安装目录: $conda_base_dir${NC}"
+        
+        # 更新所有用户的PATH设置
+        update_all_users_path "$conda_base_dir"
         
         # 确保当前环境中conda可用
         export PATH="$conda_base_dir/bin:$PATH"
@@ -1333,9 +1269,8 @@ install_conda() {
     # 如果没有找到conda，则安装
     echo -e "${YELLOW}未找到可用的conda，准备安装miniconda...${NC}"
     
-    # 确定安装目录
-    local install_dir="$target_home/miniconda3"
-    echo -e "${YELLOW}将安装conda到目标用户目录: $install_dir${NC}"
+    # 确定安装目录（使用新定义的CONDA_BASE_DIR）
+    echo -e "${YELLOW}将安装conda到指定目录: $CONDA_BASE_DIR${NC}"
     
     # 使用国内或国际镜像
     local miniconda_url=""
@@ -1350,34 +1285,13 @@ install_conda() {
     local miniconda_installer="/tmp/miniconda.sh"
     retry_command_with_logging "wget $miniconda_url -O $miniconda_installer" 300
     
+    # 确保安装目录存在
+    mkdir -p $(dirname "$CONDA_BASE_DIR")
+    
     # 安装conda
-    echo -e "${YELLOW}安装conda到: $install_dir${NC}"
-    
-    # 根据执行权限不同选择安装方式
-    local install_status=0
-    
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        # 以root用户身份为非root用户安装
-        echo -e "${YELLOW}以root身份为用户 $TARGET_USER 安装conda${NC}"
-        
-        # 确保安装目录的父目录存在且有正确的权限
-        local parent_dir=$(dirname "$install_dir")
-        if [ ! -d "$parent_dir" ]; then
-            mkdir -p "$parent_dir" || {
-                echo -e "${RED}× 无法创建父目录: $parent_dir${NC}"
-                return 1
-            }
-            chown "$TARGET_USER" "$parent_dir"
-        fi
-        
-        # 使用su命令以目标用户身份安装
-        su - "$TARGET_USER" -c "bash $miniconda_installer -b -p $install_dir"
-        install_status=$?
-    else
-        # 直接以当前用户身份安装
-        bash $miniconda_installer -b -p $install_dir
-        install_status=$?
-    fi
+    echo -e "${YELLOW}安装conda到: $CONDA_BASE_DIR${NC}"
+    bash $miniconda_installer -b -p $CONDA_BASE_DIR
+    local install_status=$?
     
     # 清理安装文件
     rm -f $miniconda_installer
@@ -1389,13 +1303,16 @@ install_conda() {
     fi
     
     # 设置权限
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        echo -e "${YELLOW}设置conda目录权限给用户: $TARGET_USER${NC}"
-        chown -R $TARGET_USER:$TARGET_USER $install_dir
+    if [ "$non_root_user" != "root" ]; then
+        echo -e "${YELLOW}设置conda目录权限给用户: $non_root_user${NC}"
+        chown -R $non_root_user:$non_root_user $CONDA_BASE_DIR
     fi
     
+    # 更新所有用户的PATH
+    update_all_users_path "$CONDA_BASE_DIR"
+    
     # 更新当前PATH
-    export PATH="$install_dir/bin:$PATH"
+    export PATH="$CONDA_BASE_DIR/bin:$PATH"
     
     # 验证安装
     if command_exists conda; then
@@ -1403,13 +1320,7 @@ install_conda() {
         
         # 初始化conda
         echo -e "${YELLOW}初始化conda...${NC}"
-        
-        if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-            # 以目标用户身份初始化conda
-            su - "$TARGET_USER" -c "$install_dir/bin/conda init bash"
-        else
-            "$install_dir/bin/conda" init bash
-        fi
+        "$CONDA_BASE_DIR/bin/conda" init bash
         
         if [ $DEBUG_MODE -eq 1 ]; then
             conda_version=$(conda --version)
@@ -1424,34 +1335,89 @@ install_conda() {
     fi
 }
 
+# 更新所有用户的PATH以包含conda
+update_all_users_path() {
+    local conda_dir="$1"
+    echo -e "${YELLOW}更新所有用户的PATH以包含conda: $conda_dir${NC}"
+    
+    # 创建系统级conda初始化脚本
+    echo -e "${YELLOW}创建系统级conda初始化脚本...${NC}"
+    cat > /etc/profile.d/conda.sh << EOF
+# 添加conda到系统PATH
+export PATH="$conda_dir/bin:\$PATH"
+
+# 设置conda环境目录
+export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
+
+# 为了兼容不同的shell，添加conda初始化
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+fi
+EOF
+    chmod +x /etc/profile.d/conda.sh
+    
+    # 确保/etc/bashrc中source该文件
+    if [ -f "/etc/bashrc" ] && ! grep -q "/etc/profile.d/conda.sh" /etc/bashrc; then
+        echo -e "${YELLOW}添加conda初始化到/etc/bashrc...${NC}"
+        echo "[ -f /etc/profile.d/conda.sh ] && . /etc/profile.d/conda.sh" >> /etc/bashrc
+    fi
+    
+    # 为所有用户添加conda初始化到.bashrc
+    echo -e "${YELLOW}为用户添加conda初始化到.bashrc...${NC}"
+    local all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
+    all_users+=("root")  # 也包括root用户
+    
+    for user in "${all_users[@]}"; do
+        local home_dir
+        if [ "$user" = "root" ]; then
+            home_dir="/root"
+        else
+            home_dir="/home/$user"
+        fi
+        
+        local bashrc="$home_dir/.bashrc"
+        
+        if [ -f "$bashrc" ] && ! grep -q "conda.sh" "$bashrc"; then
+            echo -e "${YELLOW}添加conda初始化到 $user 的.bashrc...${NC}"
+            cat >> "$bashrc" << EOF
+
+# >>> conda initialize >>>
+# !! 由KTransformers安装脚本添加 !!
+export PATH="$conda_dir/bin:\$PATH"
+export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+else
+    export PATH="$conda_dir/bin:\$PATH"
+fi
+# <<< conda initialize <<<
+EOF
+            
+            # 设置正确的所有权
+            if [ "$user" != "root" ] && [ "$(id -u)" -eq 0 ]; then
+                chown $user:$user "$bashrc"
+            fi
+        fi
+    done
+    
+    echo -e "${GREEN}✓ 已更新所有用户的PATH${NC}"
+}
+
 # 4. 使用conda创建环境
 create_conda_env() {
     echo -e "${BLUE}[步骤 4] 创建conda环境${NC}"
     
-    echo -e "${GREEN}使用环境名称: $ENV_NAME${NC}"
+    # 确保环境安装目录存在
+    mkdir -p "${ENV_INSTALL_DIR}"
     
-    # 根据当前用户和目标用户决定如何创建环境
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        # 以root身份为非root用户创建conda环境
-        echo -e "${YELLOW}以root身份为用户 $TARGET_USER 创建conda环境${NC}"
-        
-        # 使用su命令以目标用户身份创建环境
-        su - "$TARGET_USER" -c "conda create -n $ENV_NAME python=3.12 -y"
-        local status=$?
-        
-        if [ $status -eq 0 ]; then
-            echo -e "${GREEN}✓ conda环境 $ENV_NAME 创建成功${NC}"
-            return 0
-        else
-            echo -e "${RED}× conda环境创建失败${NC}"
-            return 1
-        fi
-    else
-        # 直接以当前用户身份创建环境
-        retry_command_with_logging "conda create -n $ENV_NAME python=3.12 -y" 120
-        echo -e "${GREEN}✓ conda环境 $ENV_NAME 创建成功${NC}"
-        return 0
-    fi
+    echo -e "${GREEN}使用环境名称: $ENV_NAME${NC}"
+    echo -e "${GREEN}环境安装路径: $ENV_INSTALL_DIR${NC}"
+    
+    # 设置Conda环境目录
+    conda config --add envs_dirs "${ENV_INSTALL_DIR}"
+    
+    retry_command_with_logging "conda create -n $ENV_NAME python=3.12 -y" 120
+    echo -e "${GREEN}✓ conda环境 $ENV_NAME 创建成功${NC}"
 }
 
 
@@ -2266,10 +2232,7 @@ make_dev_install() {
             return 0
         else
             echo -e "${RED}× 使用pip安装也失败${NC}"
-            echo -e "${YELLOW}您可能需要手动执行安装:${NC}"
-            echo -e "${YELLOW}1. 安装build-essential${NC}"
-            echo -e "${YELLOW}2. 进入 $INSTALL_DIR 目录${NC}"
-            echo -e "${YELLOW}3. 执行 make dev_install 或 pip install -e .${NC}"
+            echo -e "${YELLOW}将继续安装过程，但功能可能不完整${NC}"
             return 1
         fi
     fi
@@ -2325,6 +2288,9 @@ check_versions() {
     cd "$INSTALL_DIR" || return 1
     
     echo -e "${YELLOW}● KTransformers 安装信息${NC}"
+    echo -e "  ○ 安装路径: ${GREEN}${INSTALL_DIR}${NC}"
+    echo -e "  ○ 环境安装路径: ${GREEN}${ENV_INSTALL_DIR}${NC}"
+    echo -e "  ○ Conda基础路径: ${GREEN}${CONDA_BASE_DIR}${NC}"
     
 
     if python -c "import ktransformers" &>/dev/null; then
@@ -2399,17 +2365,20 @@ activate_conda_env() {
     cat > activate_env.sh << EOF
 #!/bin/bash
 # 添加conda到PATH
-export PATH="${TARGET_HOME}/miniconda3/bin:\$PATH"
+export PATH="${CONDA_BASE_DIR}/bin:\$PATH"
 
 # 初始化conda
-if [ -f "${TARGET_HOME}/miniconda3/etc/profile.d/conda.sh" ]; then
-    . "${TARGET_HOME}/miniconda3/etc/profile.d/conda.sh"
+if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then
+    . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"
 elif [ -f "/etc/profile.d/conda.sh" ]; then
     . "/etc/profile.d/conda.sh"
 else
     echo "conda.sh not found, conda may not be properly installed"
     echo "尝试使用PATH中的conda"
 fi
+
+# 设置conda环境目录
+export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
 
 # 激活环境
 conda activate $ENV_NAME
@@ -2430,61 +2399,62 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "➤ 当前环境: \$(conda info --envs | grep '*' || echo '未激活任何环境')"
 echo "➤ Python: \$(which python || echo '未找到Python')"
 echo "➤ 当前目录: \$(pwd)"
+echo "➤ 环境目录: ${ENV_INSTALL_DIR}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 EOF
     
     chmod +x activate_env.sh
     
-    # 设置激活脚本的所有者
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        chown "$TARGET_USER" activate_env.sh
-    fi
-    
     # 尝试激活环境
     local activation_success=false
     
-    # 根据当前用户和目标用户决定如何激活环境
-    if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-        # 以root身份为非root用户激活conda环境
-        echo -e "${YELLOW}以root身份为用户 $TARGET_USER 激活conda环境${NC}"
+    # 首先尝试指定的conda安装
+    if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then
+        echo -e "${YELLOW}尝试使用指定的conda安装激活环境...${NC}"
+        . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"
         
-        # 设置环境变量
-        export CONDA_PREFIX="${TARGET_HOME}/miniconda3"
-        export PATH="${CONDA_PREFIX}/bin:$PATH"
+        # 设置conda环境目录
+        export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
         
-        # 检查环境是否可激活
-        if su - "$TARGET_USER" -c "source ${CONDA_PREFIX}/etc/profile.d/conda.sh && conda activate $ENV_NAME && echo '环境激活成功'" &>/dev/null; then
+        if conda activate $ENV_NAME 2>/dev/null; then
             activation_success=true
-            echo -e "${GREEN}✓ 成功验证环境 $ENV_NAME 可激活${NC}"
+            echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
         fi
-    else
-        # 尝试用户自己的conda
-        if [ -f "${TARGET_HOME}/miniconda3/etc/profile.d/conda.sh" ]; then
-            echo -e "${YELLOW}尝试使用用户级conda激活环境...${NC}"
-            . "${TARGET_HOME}/miniconda3/etc/profile.d/conda.sh"
-            if conda activate $ENV_NAME 2>/dev/null; then
-                activation_success=true
-                echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
-            fi
-        fi
+    fi
+    
+    # 如果失败，尝试/etc/profile.d中的conda
+    if [ "$activation_success" = false ] && [ -f "/etc/profile.d/conda.sh" ]; then
+        echo -e "${YELLOW}尝试使用/etc/profile.d/conda.sh激活环境...${NC}"
+        . "/etc/profile.d/conda.sh"
         
-        # 如果失败，尝试系统conda
-        if [ "$activation_success" = false ] && [ -f "/etc/profile.d/conda.sh" ]; then
-            echo -e "${YELLOW}尝试使用系统conda激活环境...${NC}"
-            . "/etc/profile.d/conda.sh"
-            if conda activate $ENV_NAME 2>/dev/null; then
-                activation_success=true
-                echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
-            fi
+        # 设置conda环境目录
+        export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
+        
+        if conda activate $ENV_NAME 2>/dev/null; then
+            activation_success=true
+            echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
+        fi
+    fi
+    
+    # 如果以上都失败，尝试直接使用conda命令
+    if [ "$activation_success" = false ] && command_exists conda; then
+        echo -e "${YELLOW}尝试直接使用conda命令激活环境...${NC}"
+        
+        # 设置conda环境目录
+        export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
+        
+        conda activate $ENV_NAME 2>/dev/null
+        if [ $? -eq 0 ]; then
+            activation_success=true
+            echo -e "${GREEN}✓ 成功激活环境 $ENV_NAME${NC}"
         fi
     fi
     
     # 如果所有尝试都失败
     if [ "$activation_success" = false ]; then
         echo -e "${YELLOW}无法自动激活环境 $ENV_NAME${NC}"
-        echo -e "${YELLOW}完成安装后，请以用户 $TARGET_USER 身份运行以下命令激活环境:${NC}"
+        echo -e "${YELLOW}完成安装后，请运行以下命令激活环境:${NC}"
         echo -e "${BLUE}source $(pwd)/activate_env.sh${NC}"
-        return 1
     fi
     
     # 进入安装目录
@@ -2492,7 +2462,6 @@ EOF
         cd "$INSTALL_DIR" || echo -e "${RED}切换到 $INSTALL_DIR 失败${NC}"
     else
         echo -e "${RED}目录 $INSTALL_DIR 不存在${NC}"
-        return 1
     fi
     
     echo -e "${GREEN}✓ 已创建激活脚本: $(pwd)/activate_env.sh${NC}"
@@ -2817,14 +2786,12 @@ install_python_deps() {
     
     echo -e "${YELLOW}安装Python依赖...${NC}"
     
-    # 递归查找requirements.txt文件
-    local requirements_file=$(find . -name "requirements.txt" -print -quit)
-    
-    if [ -n "$requirements_file" ]; then
+    # 查找requirements.txt文件
+    if [ -f "requirements.txt" ]; then
         echo -e "${YELLOW}找到requirements.txt，开始安装依赖...${NC}"
         
         # 使用pip安装依赖
-        if pip install -r "$requirements_file"; then
+        if pip install -r requirements.txt; then
             echo -e "${GREEN}✓ Python依赖安装成功${NC}"
             return 0
         else
@@ -2835,7 +2802,7 @@ install_python_deps() {
         echo -e "${YELLOW}未找到requirements.txt，尝试安装基本依赖...${NC}"
         
         # 安装基本依赖
-        if pip install numpy requests tqdm transformers huggingface_hub fastapi uvicorn openai pyyaml ; then
+        if pip install numpy requests tqdm transformers huggingface_hub; then
             echo -e "${GREEN}✓ 基本Python依赖安装成功${NC}"
             return 0
         else
@@ -2972,9 +2939,7 @@ completion_message() {
     echo -e "\n${BLUE}===== 安装完成信息 =====${NC}\n"
     
     echo -e "${GREEN}✓ 系统检查:${NC}"
-    echo -e "  ○ 安装用户: ${GREEN}${TARGET_USER}${NC}"
-    echo -e "  ○ 用户主目录: ${GREEN}${TARGET_HOME}${NC}"
-    echo -e "  ○ 安装目录: ${GREEN}${INSTALL_DIR}${NC}"
+    echo -e "  ○ 目录: ${GREEN}${INSTALL_DIR}${NC}"
     
     if command_exists python; then
         python_version=$(python --version 2>&1)
@@ -3007,20 +2972,13 @@ completion_message() {
     
     echo -e "\n${GREEN}✓ KTransformers安装完成!${NC}"
     echo -e "${YELLOW}您可以通过以下命令进入环境:${NC}"
-    
-    if [ "$(whoami)" != "$TARGET_USER" ]; then
-        echo -e "${YELLOW}请先切换到用户 $TARGET_USER:${NC}"
-        echo -e "${BLUE}  su - ${TARGET_USER}${NC}"
-    fi
-    
     echo -e "${BLUE}  conda activate ${ENV_NAME}${NC}"
-    echo -e "${YELLOW}或者使用激活脚本:${NC}"
-    echo -e "${BLUE}  source ${INSTALL_DIR}/activate_env.sh${NC}"
     echo -e "${YELLOW}然后运行示例:${NC}"
     echo -e "${BLUE}  cd ${INSTALL_DIR}/examples${NC}"
     echo -e "${BLUE}  python run_demo.py${NC}"
     echo -e "\n${GREEN}祝您使用愉快!${NC}\n"
 }
+
 
 # 主函数
 main() {
@@ -3028,6 +2986,11 @@ main() {
     configure_installation
     
     # 显示开始安装标题
+    echo "+=======================================+"
+    echo -e "|\033[0;1;31;91m╦\033[0;1;33;93m╔═\033[0;1;32;92m┌┬┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌─┐\033[0;1;35;95m┌┐┌\033[0;1;31;91m┌─┐\033[0;1;33;93m┌─┐\033[0;1;32;92m┌─┐\033[0;1;36;96m┬─┐\033[0;1;34;94m┌┬┐\033[0;1;35;95m┌─┐\033[0;1;31;91m┬─┐\033[0;1;33;93m┌─┐\033[0m|"
+    echo -e "|\033[0;1;32;92m╠\033[0;1;36;96m╩╗\033[0;1;34;94m │ \033[0;1;35;95m├┬┘\033[0;1;31;91m├─┤\033[0;1;33;93m│││\033[0;1;32;92m└─┐\033[0;1;36;96m├┤ \033[0;1;34;94m│ │\033[0;1;35;95m├┬┘\033[0;1;31;91m│││\033[0;1;33;93m├┤ \033[0;1;32;92m├┬┘\033[0;1;36;96m└─┐\033[0m|"
+    echo -e "|\033[0;1;34;94m╩\033[0;1;35;95m ╩\033[0;1;31;91m ┴ \033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m┘└┘\033[0;1;34;94m└─┘\033[0;1;35;95m└  \033[0;1;31;91m└─┘\033[0;1;33;93m┴└─\033[0;1;32;92m┴ ┴\033[0;1;36;96m└─┘\033[0;1;34;94m┴└─\033[0;1;35;95m└─┘\033[0m|"
+    echo "+=======================================+"
     echo -e "${BLUE}===== KTransformers 安装开始 =====${NC}\n"
     
     # 设置日志文件
@@ -3116,30 +3079,40 @@ main() {
     if [ $install_status -eq 0 ]; then
         echo -e "${GREEN}✓ 安装完成！${NC}"
         
-        # 确保所有文件的所有权正确
-        if [ "$(id -u)" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
-            echo -e "${YELLOW}设置安装目录所有权为用户: $TARGET_USER${NC}"
+        # 如果当前是root用户，将workspace所有权交给非root用户
+        if [ "$(id -u)" -eq 0 ]; then
+            # 查找适合的非root用户
+            local non_root_user=""
+            non_root_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+            if [ -z "$non_root_user" ]; then
+                non_root_user=$SUDO_USER
+            fi
             
-            # 确保安装目录存在
-            if [ -d "$INSTALL_DIR" ]; then
-                chown -R $TARGET_USER:$TARGET_USER "$INSTALL_DIR"
-                echo -e "${GREEN}✓ 已更改安装目录所有权${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将安装目录所有权交给: $TARGET_USER" >> "$LOG_FILE"
+            if [ -n "$non_root_user" ] && [ "$non_root_user" != "root" ]; then
+                echo -e "${YELLOW}将workspace所有权交给用户: $non_root_user${NC}"
+                
+                # 确保workspace存在
+                if [ -d "$INSTALL_DIR" ]; then
+                    chown -R $non_root_user:$non_root_user "$INSTALL_DIR"
+                    echo -e "${GREEN}✓ 已更改workspace所有权${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将workspace所有权交给: $non_root_user" >> "$LOG_FILE"
+                else
+                    echo -e "${YELLOW}警告: workspace目录不存在${NC}"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                fi
+                
+                # 也更改日志文件的所有权
+                if [ -f "$LOG_FILE" ]; then
+                    chown $non_root_user:$non_root_user "$LOG_FILE"
+                fi
+                
+                # 更改激活脚本的所有权
+                if [ -f "activate_env.sh" ]; then
+                    chown $non_root_user:$non_root_user "activate_env.sh"
+                fi
             else
-                echo -e "${YELLOW}警告: 安装目录不存在${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: 安装目录不存在" >> "$LOG_FILE"
-            fi
-            
-            # 也更改日志文件的所有权
-            if [ -f "$LOG_FILE" ]; then
-                chown $TARGET_USER:$TARGET_USER "$LOG_FILE"
-                echo -e "${GREEN}✓ 已更改日志文件所有权${NC}"
-            fi
-            
-            # 更改激活脚本的所有权
-            if [ -f "activate_env.sh" ]; then
-                chown $TARGET_USER:$TARGET_USER "activate_env.sh"
-                echo -e "${GREEN}✓ 已更改激活脚本所有权${NC}"
+                echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
             fi
         fi
         
@@ -3152,12 +3125,3 @@ main() {
 
 # 运行主函数
 main "$@"
-
-
-
-
-
-
-
-
-
