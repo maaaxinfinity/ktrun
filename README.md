@@ -8,6 +8,11 @@
   <img src="https://img.shields.io/badge/语言-Bash-yellow" alt="语言">
 </div>
 
+## 💡QQ交流群 
+
+- [点击加入群聊](https://qm.qq.com/q/zBzV5CkDSM)  
+- QQ群号 1028429001
+
 ## 🤗 最佳实践
 
   目前已经测试成功一键部署的环境：
