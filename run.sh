@@ -263,30 +263,90 @@ show_multi_selection_menu() {
             # 计算每行显示的选项数
             local items_per_row=4
             local rows=$(( (num_options + items_per_row - 1) / items_per_row ))
-            local prefix_space="   "
+            
+            # 预先计算每个选项的显示宽度和所需的最大宽度
+            local max_widths=()
+            for ((col=0; col<items_per_row; col++)); do
+                max_widths[$col]=0
+            done
+            
+            # 计算每列需要的最大宽度
+            for ((row=0; row<rows; row++)); do
+                for ((col=0; col<items_per_row; col++)); do
+                    local i=$((row*items_per_row + col))
+                    if [ $i -lt $num_options ]; then
+                        # 计算选项显示长度 (考虑中文字符宽度)
+                        local display="${options[$i]}"
+                        local display_length=0
+                        
+                        # 计算字符串实际显示宽度 (中文字符算2个宽度)
+                        for ((j=0; j<${#display}; j++)); do
+                            local char="${display:$j:1}"
+                            if [[ $char > $'\177' ]]; then
+                                # 中文字符和其他多字节字符
+                                display_length=$((display_length + 2))
+                            else
+                                # ASCII字符
+                                display_length=$((display_length + 1))
+                            fi
+                        done
+                        
+                        # 添加状态符号宽度 (● 或 ○ 加空格)
+                        display_length=$((display_length + 2))
+                        
+                        # 更新该列的最大宽度
+                        if [ $display_length -gt ${max_widths[$col]} ]; then
+                            max_widths[$col]=$display_length
+                        fi
+                    fi
+                done
+            done
+            
+            # 确保每列至少有最小宽度
+            for ((col=0; col<items_per_row; col++)); do
+                if [ ${max_widths[$col]} -lt 20 ]; then
+                    max_widths[$col]=20
+                fi
+                # 添加一些额外空间用于分隔符
+                max_widths[$col]=$((max_widths[$col] + 3))
+            done
             
             # 显示除最后一行外的选项
-            for ((row=1; row<rows; row++)); do
+            for ((row=0; row<rows-1; row++)); do
                 echo -ne "├─ "
-                for ((i=(row-1)*items_per_row; i<row*items_per_row && i<num_options; i++)); do
-                    # 计算当前选项的显示长度
-                    local display="${statuses[$i]} ${options[$i]}"
-                    echo -ne "$display"
-                    
-                    # 只有不是行尾的选项才需要添加分隔符和对齐
-                    if [ $i -lt $((row*items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
-                        # 固定每个选项的显示宽度为20个字符
-                        local display_length=${#display}
-                        local padding=$((20 - display_length))
+                for ((col=0; col<items_per_row; col++)); do
+                    local i=$((row*items_per_row + col))
+                    if [ $i -lt $num_options ]; then
+                        local display="${statuses[$i]} ${options[$i]}"
+                        echo -ne "$display"
                         
-                        # 确保至少有2个空格的间距
-                        if [ $padding -lt 2 ]; then
-                            padding=2
+                        # 只有不是行尾的选项才需要添加分隔符和对齐
+                        if [ $col -lt $((items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
+                            # 计算实际显示宽度
+                            local display_length=0
+                            local option_text="${options[$i]}"
+                            
+                            for ((j=0; j<${#option_text}; j++)); do
+                                local char="${option_text:$j:1}"
+                                if [[ $char > $'\177' ]]; then
+                                    # 中文字符和其他多字节字符
+                                    display_length=$((display_length + 2))
+                                else
+                                    # ASCII字符
+                                    display_length=$((display_length + 1))
+                                fi
+                            done
+                            
+                            # 添加状态符号宽度 (● 或 ○ 加空格)
+                            display_length=$((display_length + 2))
+                            
+                            # 计算需要的填充
+                            local padding=$((${max_widths[$col]} - display_length))
+                            
+                            # 添加空格进行对齐
+                            printf "%*s" $padding ""
+                            echo -ne "| "
                         fi
-                        
-                        # 添加空格进行对齐
-                        printf "%*s" $padding ""
-                        echo -ne "| "
                     fi
                 done
                 echo -e ""
@@ -294,25 +354,39 @@ show_multi_selection_menu() {
             
             # 显示最后一行选项
             echo -ne "╰─ "
-            for ((i=(rows-1)*items_per_row; i<num_options; i++)); do
-                # 计算当前选项的显示长度
-                local display="${statuses[$i]} ${options[$i]}"
-                echo -ne "$display"
-                
-                # 只有不是行尾的选项才需要添加分隔符和对齐
-                if [ $i -lt $((num_options-1)) ]; then
-                    # 固定每个选项的显示宽度为20个字符
-                    local display_length=${#display}
-                    local padding=$((20 - display_length))
+            for ((col=0; col<items_per_row; col++)); do
+                local i=$(((rows-1)*items_per_row + col))
+                if [ $i -lt $num_options ]; then
+                    local display="${statuses[$i]} ${options[$i]}"
+                    echo -ne "$display"
                     
-                    # 确保至少有2个空格的间距
-                    if [ $padding -lt 2 ]; then
-                        padding=2
+                    # 只有不是行尾的选项才需要添加分隔符和对齐
+                    if [ $col -lt $((items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
+                        # 计算实际显示宽度
+                        local display_length=0
+                        local option_text="${options[$i]}"
+                        
+                        for ((j=0; j<${#option_text}; j++)); do
+                            local char="${option_text:$j:1}"
+                            if [[ $char > $'\177' ]]; then
+                                # 中文字符和其他多字节字符
+                                display_length=$((display_length + 2))
+                            else
+                                # ASCII字符
+                                display_length=$((display_length + 1))
+                            fi
+                        done
+                        
+                        # 添加状态符号宽度 (● 或 ○ 加空格)
+                        display_length=$((display_length + 2))
+                        
+                        # 计算需要的填充
+                        local padding=$((${max_widths[$col]} - display_length))
+                        
+                        # 添加空格进行对齐
+                        printf "%*s" $padding ""
+                        echo -ne "| "
                     fi
-                    
-                    # 添加空格进行对齐
-                    printf "%*s" $padding ""
-                    echo -ne "| "
                 fi
             done
             echo -e ""
