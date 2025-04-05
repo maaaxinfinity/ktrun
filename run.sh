@@ -165,7 +165,6 @@ show_ktransformers_logo() {
 
 # 版本选择函数
 select_ktrans_version() {
-    echo -e "\n${BLUE}===== 选择KTransformers版本 =====${NC}"
     
     # 定义版本列表
     local versions=(
@@ -181,38 +180,41 @@ select_ktrans_version() {
     
     # 定义推荐版本
     local recommended=(
-        "v0.2.2rc2"
+        "v0.2.2"
         "v0.2.3post2"
         "v0.2.4post1"
     )
     
-    # 构建显示选项数组
+    # 默认版本和索引
+    local default_version="v0.2.4post1"
+    local default_index=8
+    
+    # 构建选项数组
     local version_options=()
     for version in "${versions[@]}"; do
         local is_recommended=""
         for rec in "${recommended[@]}"; do
             if [ "$version" = "$rec" ]; then
-                is_recommended=" (推荐)"
+                # 使用echo -e来处理ANSI颜色转义序列
+                is_recommended=" $(echo -e "${CYAN}(R)${NC}")"
                 break
             fi
         done
         version_options+=("$version$is_recommended")
     done
     
-    # 设置默认选择为最新版本
-    local default_version="${versions[-1]}"
-    local default_index=${#versions[@]}
-    
     # 显示选择界面
-    show_multi_selection_menu "选择KTransformers版本" "$default_version" "$default_index" "${version_options[@]}"
+    show_multi_selection_menu "选择KTransformers版本(R为推荐版本)" "$default_version" "$default_index" "${version_options[@]}"
     local choice=$?
     
-    # 设置选中的版本
-    KTRANS_VERSION="${versions[$((choice-1))]}"
-    echo -e "${GREEN}✓ 已选择版本: ${KTRANS_VERSION}${NC}"
-    sleep 0.3
-    
-    return 0
+    # 设置选择的版本
+    if [ $choice -ge 0 ] && [ $choice -lt ${#versions[@]} ]; then
+        KTRANS_VERSION="${versions[$choice]}"
+        echo -e "${GREEN}已选择版本: $KTRANS_VERSION${NC}"
+    else
+        echo -e "${RED}无效的选择${NC}"
+        return 1
+    fi
 }
 
 # 添加多选项选择函数
@@ -264,69 +266,8 @@ show_multi_selection_menu() {
             local items_per_row=4
             local rows=$(( (num_options + items_per_row - 1) / items_per_row ))
             
-            # 找出最长选项的长度
-            local max_width=0
-            for ((i=0; i<num_options; i++)); do
-                local option_text="${options[$i]}"
-                local option_length=0
-                
-                # 计算字符串实际显示宽度 (中文字符算2个宽度)
-                for ((j=0; j<${#option_text}; j++)); do
-                    local char="${option_text:$j:1}"
-                    if [[ $char > $'\177' ]]; then
-                        # 中文字符和其他多字节字符
-                        option_length=$((option_length + 2))
-                    else
-                        # ASCII字符
-                        option_length=$((option_length + 1))
-                    fi
-                done
-                
-                # 加上状态符号宽度
-                option_length=$((option_length + 4))
-                
-                # 更新最大宽度
-                if [ $option_length -gt $max_width ]; then
-                    max_width=$option_length
-                fi
-            done
-            
-            # 确保最小宽度并添加额外空间
-            if [ $max_width -lt 30 ]; then
-                max_width=30
-            fi
-            
-            # 调试输出
-            if [ "$DEBUG_MODE" = "1" ]; then
-                echo "最大选项宽度: $max_width" >&2
-            fi
-            
-            # 创建格式化选项函数
-            format_option() {
-                local status="$1"
-                local option="$2"
-                local width="$3"
-                
-                # 计算选项文本显示宽度
-                local text_length=0
-                for ((j=0; j<${#option}; j++)); do
-                    local char="${option:$j:1}"
-                    if [[ $char > $'\177' ]]; then
-                        text_length=$((text_length + 2))
-                    else
-                        text_length=$((text_length + 1))
-                    fi
-                done
-                
-                # 计算需要的总填充空格数 (状态符号+空格+文本+填充)
-                local status_width=2  # ● 或 ○
-                local total_width=$((status_width + 1 + text_length))  # 状态+空格+文本
-                local padding=$((width - total_width))
-                
-                # 输出格式化的选项
-                echo -n "$status $option"
-                printf "%*s" $padding ""
-            }
+            # 设置固定宽度值
+            local col_widths=(20 20 20 20)
             
             # 显示除最后一行外的选项
             for ((row=0; row<rows-1; row++)); do
@@ -334,11 +275,13 @@ show_multi_selection_menu() {
                 for ((col=0; col<items_per_row; col++)); do
                     local i=$((row*items_per_row + col))
                     if [ $i -lt $num_options ]; then
-                        # 使用格式化函数输出选项
-                        format_option "${statuses[$i]}" "${options[$i]}" $max_width
+                        echo -ne "${statuses[$i]} "
+                        echo -ne "${options[$i]}"
                         
-                        # 只有不是行尾的选项才需要添加分隔符
                         if [ $col -lt $((items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
+                            # 剥离颜色代码计算真实长度
+                            local plain_option=$(echo "${options[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
+                            printf "%*s" $((col_widths[$col] - ${#plain_option})) ""
                             echo -ne "| "
                         fi
                     fi
@@ -351,11 +294,13 @@ show_multi_selection_menu() {
             for ((col=0; col<items_per_row; col++)); do
                 local i=$(((rows-1)*items_per_row + col))
                 if [ $i -lt $num_options ]; then
-                    # 使用格式化函数输出选项
-                    format_option "${statuses[$i]}" "${options[$i]}" $max_width
+                    echo -ne "${statuses[$i]} "
+                    echo -ne "${options[$i]}"
                     
-                    # 只有不是行尾的选项才需要添加分隔符
                     if [ $col -lt $((items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
+                        # 剥离颜色代码计算真实长度
+                        local plain_option=$(echo "${options[$i]}" | sed 's/\x1b\[[0-9;]*m//g')
+                        printf "%*s" $((col_widths[$col] - ${#plain_option})) ""
                         echo -ne "| "
                     fi
                 fi
