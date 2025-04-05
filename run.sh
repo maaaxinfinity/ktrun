@@ -163,16 +163,19 @@ show_ktransformers_logo() {
 # 添加多选项选择函数
 show_multi_selection_menu() {
     local title="$1"
-    local default_value="$2"  # 新增：默认值参数
-    shift 2
+    local default_value="$2"  # 默认值显示文本
+    local default_index="$3"  # 新增：默认选中索引
+    shift 3
     local options=("$@")
     local num_options=${#options[@]}
     local selected=1
     local statuses=()
     
     # 根据默认值设置初始选择
-    # 如果默认值是"是"，选择第一个选项；如果是"否"，选择第二个选项
-    if [ "$default_value" = "否" ]; then
+    if [ -n "$default_index" ] && [ "$default_index" -gt 0 ] && [ "$default_index" -le "$num_options" ]; then
+        # 如果提供了有效的默认索引，使用它
+        selected=$default_index
+    elif [ "$default_value" = "否" ]; then
         selected=2
     elif [ "$default_value" = "是" ]; then
         selected=1
@@ -263,7 +266,7 @@ select_or_input_path() {
         echo -e "├─ 默认路径: ${GREEN}${default_path}${NC}"
         echo -e ""
         
-        show_multi_selection_menu "是否使用默认${path_type}路径?" "是" "是" "否"
+        show_multi_selection_menu "是否使用默认${path_type}路径?" "是" 1 "是" "否"
         local path_choice=$?
         
         if [ $path_choice -eq 1 ]; then
@@ -327,8 +330,17 @@ select_install_user() {
         user_options+=("$user ($home_dir)")
     done
     
+    # 找到默认用户在列表中的位置
+    local default_index=0
+    for i in "${!all_users[@]}"; do
+        if [ "${all_users[$i]}" = "$default_user" ]; then
+            default_index=$((i+1))
+            break
+        fi
+    done
+    
     # 使用新的多选项选择函数，显示默认用户
-    show_multi_selection_menu "选择安装用户" "${default_user} (${default_home})" "${user_options[@]}"
+    show_multi_selection_menu "选择安装用户" "${default_user} (${default_home})" "$default_index" "${user_options[@]}"
     local choice=$?
     
     # 设置选中的用户
@@ -413,7 +425,7 @@ configure_installation() {
         
         # 安装路径选择
         local default_install_dir="${INSTALL_DIR}"
-        show_multi_selection_menu "是否使用默认安装路径?" "${default_install_dir}" "是" "否"
+        show_multi_selection_menu "是否使用默认安装路径?" "${default_install_dir}" 1 "是" "否"
         local path_choice=$?
         
         if [ $path_choice -eq 1 ]; then
@@ -441,7 +453,7 @@ configure_installation() {
         CONDA_BASE_DIR="${INSTALL_DIR}/conda"
         
         # Conda环境名称选择
-        show_multi_selection_menu "是否使用默认环境名称?" "${ENV_NAME}" "是" "否"
+        show_multi_selection_menu "是否使用默认环境名称?" "${ENV_NAME}" 1 "是" "否"
         local env_choice=$?
         
         if [ $env_choice -eq 2 ]; then
@@ -460,7 +472,7 @@ configure_installation() {
         fi
         
         # NUMA环境变量设置
-        show_multi_selection_menu "是否启用USE_NUMA环境变量?" "否" "是" "否"
+        show_multi_selection_menu "是否启用USE_NUMA环境变量?" "否" 2 "是" "否"
         local numa_choice=$?
         
         if [ $numa_choice -eq 1 ]; then
@@ -474,7 +486,7 @@ configure_installation() {
         fi
         
         # 国内代理选择
-        show_multi_selection_menu "是否使用国内代理和镜像站点?" "是" "是" "否"
+        show_multi_selection_menu "是否使用国内代理和镜像站点?" "是" 1 "是" "否"
         local proxy_choice=$?
         
         if [ $proxy_choice -eq 1 ]; then
@@ -488,7 +500,7 @@ configure_installation() {
         fi
 
         # 编译线程数选择
-        show_multi_selection_menu "是否使用默认线程数?" "${MAX_JOBS}" "是" "否"
+        show_multi_selection_menu "是否使用默认线程数?" "${MAX_JOBS}" 1 "是" "否"
         local jobs_choice=$?
         
         if [ $jobs_choice -eq 2 ]; then
@@ -506,7 +518,7 @@ configure_installation() {
         fi
         
         # 调试模式选择
-        show_multi_selection_menu "是否启用调试模式?" "否" "是" "否"
+        show_multi_selection_menu "是否启用调试模式?" "否" 2 "是" "否"
         local debug_choice=$?
         
         if [ $debug_choice -eq 1 ]; then
