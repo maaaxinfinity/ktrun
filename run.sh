@@ -135,7 +135,7 @@ NC='\033[0m'
 INSTALL_DIR="$(pwd)/workspace"  # 安装目录
 ENV_INSTALL_DIR=""              # 环境安装目录，将在configure_installation中设置
 CONDA_BASE_DIR=""               # Conda基础目录，将在configure_installation中设置
-ENV_NAME="ktrans_main"          # Conda环境名称
+ENV_NAME=""                     # Conda环境名称，将基于选择的版本号自动生成
 MAX_JOBS=$(nproc)               # 编译使用的最大线程数
 USE_NUMA=0                      # 是否启用NUMA环境变量（默认不启用）
 
@@ -210,7 +210,13 @@ select_ktrans_version() {
     # 设置选择的版本
     if [ $choice -ge 0 ] && [ $choice -lt ${#versions[@]} ]; then
         KTRANS_VERSION="${versions[$choice]}"
+        
+        # 根据版本号生成环境名称
+        # 去掉v前缀,然后去掉小数点
+        ENV_NAME="ktrans_$(echo $KTRANS_VERSION | sed 's/^v//' | sed 's/\.//g')"
+        
         echo -e "${GREEN}已选择版本: $KTRANS_VERSION${NC}"
+        echo -e "${GREEN}环境名称将设为: $ENV_NAME${NC}"
     else
         echo -e "${RED}无效的选择${NC}"
         return 1
