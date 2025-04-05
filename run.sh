@@ -292,7 +292,7 @@ show_multi_selection_menu() {
                         done
                         
                         # 添加状态符号宽度 (● 或 ○ 加空格)
-                        display_length=$((display_length + 2))
+                        display_length=$((display_length + 4))
                         
                         # 更新该列的最大宽度
                         if [ $display_length -gt ${max_widths[$col]} ]; then
@@ -302,14 +302,19 @@ show_multi_selection_menu() {
                 done
             done
             
-            # 确保每列至少有最小宽度
+            # 确保每列至少有最小宽度，并添加固定的额外空间
             for ((col=0; col<items_per_row; col++)); do
-                if [ ${max_widths[$col]} -lt 20 ]; then
-                    max_widths[$col]=20
+                if [ ${max_widths[$col]} -lt 25 ]; then
+                    max_widths[$col]=25
                 fi
-                # 添加一些额外空间用于分隔符
-                max_widths[$col]=$((max_widths[$col] + 3))
+                # 额外空间确保分隔符有足够间距
+                max_widths[$col]=$((max_widths[$col] + 4))
             done
+            
+            # 调试: 输出计算的列宽
+            if [ "$DEBUG_MODE" = "1" ]; then
+                echo "计算的最大列宽: ${max_widths[*]}" >&2
+            fi
             
             # 显示除最后一行外的选项
             for ((row=0; row<rows-1; row++)); do
@@ -338,10 +343,13 @@ show_multi_selection_menu() {
                             done
                             
                             # 添加状态符号宽度 (● 或 ○ 加空格)
-                            display_length=$((display_length + 2))
+                            display_length=$((display_length + 4))
                             
                             # 计算需要的填充
                             local padding=$((${max_widths[$col]} - display_length))
+                            if [ $padding -lt 2 ]; then
+                                padding=2
+                            fi
                             
                             # 添加空格进行对齐
                             printf "%*s" $padding ""
@@ -378,10 +386,13 @@ show_multi_selection_menu() {
                         done
                         
                         # 添加状态符号宽度 (● 或 ○ 加空格)
-                        display_length=$((display_length + 2))
+                        display_length=$((display_length + 4))
                         
                         # 计算需要的填充
                         local padding=$((${max_widths[$col]} - display_length))
+                        if [ $padding -lt 2 ]; then
+                            padding=2
+                        fi
                         
                         # 添加空格进行对齐
                         printf "%*s" $padding ""
