@@ -208,8 +208,8 @@ select_ktrans_version() {
     local choice=$?
     
     # 设置选择的版本
-    if [ $choice -ge 0 ] && [ $choice -lt ${#versions[@]} ]; then
-        KTRANS_VERSION="${versions[$choice]}"
+    if [ $choice -ge 1 ] && [ $choice -le ${#versions[@]} ]; then
+        KTRANS_VERSION="${versions[$((choice-1))]}"
         
         # 根据版本号生成环境名称
         # 去掉v前缀,然后去掉小数点
@@ -217,6 +217,7 @@ select_ktrans_version() {
         
         echo -e "${GREEN}已选择版本: $KTRANS_VERSION${NC}"
         echo -e "${GREEN}环境名称将设为: $ENV_NAME${NC}"
+        return 0  # 明确返回成功状态
     else
         echo -e "${RED}无效的选择${NC}"
         return 1
@@ -244,8 +245,8 @@ show_multi_selection_menu() {
     fi
     
     # 初始化状态数组
-    for ((i=1; i<=num_options; i++)); do
-        if [ $i -eq $selected ]; then
+    for ((i=0; i<num_options; i++)); do
+        if [ $i -eq $((selected-1)) ]; then
             statuses+=("\033[1;32m●\033[0m")  # 绿色高亮
         else
             statuses+=("○")
