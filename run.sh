@@ -181,7 +181,7 @@ select_ktrans_version() {
     
     # 定义推荐版本
     local recommended=(
-        "v0.2.2"
+        "v0.2.2rc2"
         "v0.2.3post2"
         "v0.2.4post1"
     )
@@ -292,16 +292,41 @@ show_multi_selection_menu() {
             done
             
             # 确保最小宽度并添加额外空间
-            if [ $max_width -lt 25 ]; then
-                max_width=25
+            if [ $max_width -lt 30 ]; then
+                max_width=30
             fi
-            # 添加额外空间用于分隔符
-            max_width=$((max_width + 4))
             
             # 调试输出
             if [ "$DEBUG_MODE" = "1" ]; then
                 echo "最大选项宽度: $max_width" >&2
             fi
+            
+            # 创建格式化选项函数
+            format_option() {
+                local status="$1"
+                local option="$2"
+                local width="$3"
+                
+                # 计算选项文本显示宽度
+                local text_length=0
+                for ((j=0; j<${#option}; j++)); do
+                    local char="${option:$j:1}"
+                    if [[ $char > $'\177' ]]; then
+                        text_length=$((text_length + 2))
+                    else
+                        text_length=$((text_length + 1))
+                    fi
+                done
+                
+                # 计算需要的总填充空格数 (状态符号+空格+文本+填充)
+                local status_width=2  # ● 或 ○
+                local total_width=$((status_width + 1 + text_length))  # 状态+空格+文本
+                local padding=$((width - total_width))
+                
+                # 输出格式化的选项
+                echo -n "$status $option"
+                printf "%*s" $padding ""
+            }
             
             # 显示除最后一行外的选项
             for ((row=0; row<rows-1; row++)); do
@@ -309,34 +334,11 @@ show_multi_selection_menu() {
                 for ((col=0; col<items_per_row; col++)); do
                     local i=$((row*items_per_row + col))
                     if [ $i -lt $num_options ]; then
-                        local display="${statuses[$i]} ${options[$i]}"
-                        echo -ne "$display"
+                        # 使用格式化函数输出选项
+                        format_option "${statuses[$i]}" "${options[$i]}" $max_width
                         
-                        # 只有不是行尾的选项才需要添加分隔符和对齐
+                        # 只有不是行尾的选项才需要添加分隔符
                         if [ $col -lt $((items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
-                            # 计算当前选项长度
-                            local display_length=0
-                            local option_text="${options[$i]}"
-                            
-                            for ((j=0; j<${#option_text}; j++)); do
-                                local char="${option_text:$j:1}"
-                                if [[ $char > $'\177' ]]; then
-                                    # 中文字符和其他多字节字符
-                                    display_length=$((display_length + 2))
-                                else
-                                    # ASCII字符
-                                    display_length=$((display_length + 1))
-                                fi
-                            done
-                            
-                            # 添加状态符号宽度
-                            display_length=$((display_length + 4))
-                            
-                            # 计算需要的填充以达到最大宽度
-                            local padding=$((max_width - display_length))
-                            
-                            # 添加空格进行对齐
-                            printf "%*s" $padding ""
                             echo -ne "| "
                         fi
                     fi
@@ -349,34 +351,11 @@ show_multi_selection_menu() {
             for ((col=0; col<items_per_row; col++)); do
                 local i=$(((rows-1)*items_per_row + col))
                 if [ $i -lt $num_options ]; then
-                    local display="${statuses[$i]} ${options[$i]}"
-                    echo -ne "$display"
+                    # 使用格式化函数输出选项
+                    format_option "${statuses[$i]}" "${options[$i]}" $max_width
                     
-                    # 只有不是行尾的选项才需要添加分隔符和对齐
+                    # 只有不是行尾的选项才需要添加分隔符
                     if [ $col -lt $((items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
-                        # 计算当前选项长度
-                        local display_length=0
-                        local option_text="${options[$i]}"
-                        
-                        for ((j=0; j<${#option_text}; j++)); do
-                            local char="${option_text:$j:1}"
-                            if [[ $char > $'\177' ]]; then
-                                # 中文字符和其他多字节字符
-                                display_length=$((display_length + 2))
-                            else
-                                # ASCII字符
-                                display_length=$((display_length + 1))
-                            fi
-                        done
-                        
-                        # 添加状态符号宽度
-                        display_length=$((display_length + 4))
-                        
-                        # 计算需要的填充以达到最大宽度
-                        local padding=$((max_width - display_length))
-                        
-                        # 添加空格进行对齐
-                        printf "%*s" $padding ""
                         echo -ne "| "
                     fi
                 fi
