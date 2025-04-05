@@ -167,7 +167,7 @@ show_ktransformers_logo() {
 select_ktrans_version() {
     echo -e "\n${BLUE}===== 选择KTransformers版本 =====${NC}"
     
-    # 定义版本列表（已排序，最新版本在最后）
+    # 定义版本列表
     local versions=(
         "v0.2.2"
         "v0.2.2rc1"
@@ -179,7 +179,7 @@ select_ktrans_version() {
         "v0.2.4post1"
     )
     
-    # 定义推荐版本（每个主版本的最新版本）
+    # 定义推荐版本
     local recommended=(
         "v0.2.2"
         "v0.2.3post2"
@@ -258,16 +258,48 @@ show_multi_selection_menu() {
             echo -e "├─ 默认值: ${GREEN}${default_value}${NC}"
         fi
         echo -e "│"
-        echo -ne "╰─ "
         
-        for ((i=0; i<num_options; i++)); do
-            echo -ne "${statuses[$i]} ${options[$i]}"
-            if [ $i -lt $((num_options-1)) ]; then
-                echo -ne " | "
-            fi
-        done
-        echo -e "\n"
-        echo -e "使用方向键选择，回车确认"
+        # 判断是否需要拆分显示
+        if [ $num_options -gt 4 ]; then
+            # 计算每行显示的选项数
+            local items_per_row=4
+            local rows=$(( (num_options + items_per_row - 1) / items_per_row ))
+            local current_row=1
+            
+            # 显示除最后一行外的选项
+            for ((row=1; row<rows; row++)); do
+                echo -ne "├─ "
+                for ((i=(row-1)*items_per_row; i<row*items_per_row && i<num_options; i++)); do
+                    echo -ne "${statuses[$i]} ${options[$i]}"
+                    if [ $i -lt $((row*items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
+                        echo -ne " | "
+                    fi
+                done
+                echo -e ""
+            done
+            
+            # 显示最后一行选项
+            echo -ne "╰─"
+            for ((i=(rows-1)*items_per_row; i<num_options; i++)); do
+                echo -ne "${statuses[$i]} ${options[$i]}"
+                if [ $i -lt $((num_options-1)) ]; then
+                    echo -ne " | "
+                fi
+            done
+            echo -e ""
+        else
+            # 原来的单行显示方式
+            echo -ne "╰─ "
+            for ((i=0; i<num_options; i++)); do
+                echo -ne "${statuses[$i]} ${options[$i]}"
+                if [ $i -lt $((num_options-1)) ]; then
+                    echo -ne " | "
+                fi
+            done
+            echo -e ""
+        fi
+        
+        echo -e "\n使用方向键选择，回车确认"
     }
     
     # 初始渲染
