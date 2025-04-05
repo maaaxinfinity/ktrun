@@ -148,6 +148,9 @@ DEBUG_MODE=0                    # 调试模式开关
 GIT_DEBUG_MODE=0                # Git详细日志开关
 FAST_MODE=0                     # 快速安装模式开关
 
+# 版本设置
+KTRANS_VERSION="v0.2.4post1"         # KTransformers 版本，默认使用最新版本
+
 # 内部使用变量
 LOG_FILE=""                     # 日志文件路径
 
@@ -158,6 +161,58 @@ show_ktransformers_logo() {
     echo -e "|\033[1;35m╠\033[1;35m╩╗\033[1;37m │ \033[1;37m├┬┘\033[1;37m├─┤\033[1;37m│││\033[1;37m└─┐\033[1;37m├┤ \033[1;37m│ │\033[1;37m├┬┘\033[1;37m│││\033[1;37m├┤ \033[1;37m├┬┘\033[1;37m└─┐\033[0m|"
     echo -e "|\033[1;35m╩\033[1;35m ╩\033[1;37m ┴ \033[1;37m┴└─\033[1;37m┴ ┴\033[1;37m┘└┘\033[1;37m└─┘\033[1;37m└  \033[1;37m└─┘\033[1;37m┴└─\033[1;37m┴ ┴\033[1;37m└─┘\033[1;37m┴└─\033[1;37m└─┘\033[0m|"
     echo "+=======================================+"
+}
+
+# 版本选择函数
+select_ktrans_version() {
+    echo -e "\n${BLUE}===== 选择KTransformers版本 =====${NC}"
+    
+    # 定义版本列表（已排序，最新版本在最后）
+    local versions=(
+        "v0.2.2"
+        "v0.2.2rc1"
+        "v0.2.2rc2"
+        "v0.2.3"
+        "v0.2.3post1"
+        "v0.2.3post2"
+        "v0.2.4"
+        "v0.2.4post1"
+    )
+    
+    # 定义推荐版本（每个主版本的最新版本）
+    local recommended=(
+        "v0.2.2"
+        "v0.2.3post2"
+        "v0.2.4post1"
+    )
+    
+    # 构建显示选项数组
+    local version_options=()
+    for version in "${versions[@]}"; do
+        local is_recommended=""
+        for rec in "${recommended[@]}"; do
+            if [ "$version" = "$rec" ]; then
+                is_recommended=" (推荐)"
+                break
+            fi
+        done
+        version_options+=("$version$is_recommended")
+    done
+    
+    # 设置默认选择为最新版本
+    local default_version="${versions[-1]}"
+    local default_index=${#versions[@]}
+    
+    # 显示选择界面
+    show_multi_selection_menu "选择KTransformers版本" "$default_version" "$default_index" "${version_options[@]}"
+    local choice=$?
+    
+    # 设置选中的版本
+    KTRANS_VERSION="${versions[$((choice-1))]}"
+    echo -e "${GREEN}✓ 已选择版本: ${KTRANS_VERSION}${NC}"
+    sleep 0.3
+    
+    return 0
 }
 
 # 添加多选项选择函数
@@ -386,6 +441,12 @@ configure_installation() {
     # 选择安装用户
     if ! select_install_user; then
         echo -e "${RED}× 用户选择失败${NC}"
+        exit 1
+    fi
+    
+    # 选择KTransformers版本
+    if ! select_ktrans_version; then
+        echo -e "${RED}× 版本选择失败${NC}"
         exit 1
     fi
 
@@ -1145,6 +1206,18 @@ clone_repo() {
     # 克隆仓库
     if git clone "$clone_url" "$INSTALL_DIR"; then
         echo -e "${GREEN}✓ 仓库克隆成功${NC}"
+        
+        # 切换到安装目录
+        cd "$INSTALL_DIR" || return 1
+        
+        # 检出指定版本
+        echo -e "${YELLOW}[INFO] 检出版本: ${KTRANS_VERSION}${NC}"
+        if git checkout "$KTRANS_VERSION"; then
+            echo -e "${GREEN}✓ 成功切换到版本: ${KTRANS_VERSION}${NC}"
+        else
+            echo -e "${RED}× 无法切换到版本: ${KTRANS_VERSION}，将使用默认分支${NC}"
+        fi
+        
         return 0
     else
         # 如果使用代理失败，尝试直接连接
@@ -1153,6 +1226,18 @@ clone_repo() {
             
             if git clone "$repo_url" "$INSTALL_DIR"; then
                 echo -e "${GREEN}✓ 直接克隆仓库成功${NC}"
+                
+                # 切换到安装目录
+                cd "$INSTALL_DIR" || return 1
+                
+                # 检出指定版本
+                echo -e "${YELLOW}[INFO] 检出版本: ${KTRANS_VERSION}${NC}"
+                if git checkout "$KTRANS_VERSION"; then
+                    echo -e "${GREEN}✓ 成功切换到版本: ${KTRANS_VERSION}${NC}"
+                else
+                    echo -e "${RED}× 无法切换到版本: ${KTRANS_VERSION}，将使用默认分支${NC}"
+                fi
+                
                 return 0
             else
                 echo -e "${RED}× 仓库克隆失败${NC}"
