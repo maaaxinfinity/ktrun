@@ -227,13 +227,12 @@ show_multi_selection_menu() {
     local statuses=()
     
     # 根据默认值设置初始选择
-    if [ -n "$default_index" ] && [ "$default_index" -gt 0 ] && [ "$default_index" -le "$num_options" ]; then
-        # 如果提供了有效的默认索引，使用它
+    if [ -n "$default_index" ]; then
         selected=$default_index
-    elif [ "$default_value" = "否" ]; then
-        selected=2
-    elif [ "$default_value" = "是" ]; then
-        selected=1
+    elif [ "$default_value" = "False" ]; then
+        selected=1  # 默认选择"否"选项
+    elif [ "$default_value" = "True" ]; then
+        selected=0  # 默认选择"是"选项
     fi
     
     # 初始化状态数组
@@ -264,26 +263,56 @@ show_multi_selection_menu() {
             # 计算每行显示的选项数
             local items_per_row=4
             local rows=$(( (num_options + items_per_row - 1) / items_per_row ))
-            local current_row=1
+            local prefix_space="   "
             
             # 显示除最后一行外的选项
             for ((row=1; row<rows; row++)); do
                 echo -ne "├─ "
                 for ((i=(row-1)*items_per_row; i<row*items_per_row && i<num_options; i++)); do
-                    echo -ne "${statuses[$i]} ${options[$i]}"
+                    # 计算当前选项的显示长度
+                    local display="${statuses[$i]} ${options[$i]}"
+                    echo -ne "$display"
+                    
+                    # 只有不是行尾的选项才需要添加分隔符和对齐
                     if [ $i -lt $((row*items_per_row-1)) ] && [ $i -lt $((num_options-1)) ]; then
-                        echo -ne " | "
+                        # 固定每个选项的显示宽度为20个字符
+                        local display_length=${#display}
+                        local padding=$((20 - display_length))
+                        
+                        # 确保至少有2个空格的间距
+                        if [ $padding -lt 2 ]; then
+                            padding=2
+                        fi
+                        
+                        # 添加空格进行对齐
+                        printf "%*s" $padding ""
+                        echo -ne "| "
                     fi
                 done
                 echo -e ""
             done
             
             # 显示最后一行选项
-            echo -ne "╰─"
+            echo -ne "╰─ "
             for ((i=(rows-1)*items_per_row; i<num_options; i++)); do
-                echo -ne "${statuses[$i]} ${options[$i]}"
+                # 计算当前选项的显示长度
+                local display="${statuses[$i]} ${options[$i]}"
+                echo -ne "$display"
+                
+                # 只有不是行尾的选项才需要添加分隔符和对齐
                 if [ $i -lt $((num_options-1)) ]; then
-                    echo -ne " | "
+                    # 固定每个选项的显示宽度为20个字符
+                    local display_length=${#display}
+                    local padding=$((20 - display_length))
+                    
+                    # 确保至少有2个空格的间距
+                    if [ $padding -lt 2 ]; then
+                        padding=2
+                    fi
+                    
+                    # 添加空格进行对齐
+                    printf "%*s" $padding ""
+                    echo -ne "| "
                 fi
             done
             echo -e ""
@@ -353,7 +382,7 @@ select_or_input_path() {
         echo -e "├─ 默认路径: ${GREEN}${default_path}${NC}"
         echo -e ""
         
-        show_multi_selection_menu "是否使用默认${path_type}路径?" "是" 1 "是" "否"
+        show_multi_selection_menu "是否使用默认${path_type}路径?" "True" 1 "True" "False"
         local path_choice=$?
         
         if [ $path_choice -eq 1 ]; then
@@ -517,8 +546,8 @@ configure_installation() {
         echo -e "\n${BLUE}配置安装参数${NC}"
         
         # 安装路径选择
-        local default_install_dir="${INSTALL_DIR}"
-        show_multi_selection_menu "是否使用默认安装路径?" "${default_install_dir}" 1 "是" "否"
+        local default_install_dir="${INSTALL_DIR:-/opt/ktransformers}"
+        show_multi_selection_menu "是否使用默认安装路径?" "${default_install_dir}" 1 "True" "False"
         local path_choice=$?
         
         if [ $path_choice -eq 1 ]; then
@@ -546,7 +575,7 @@ configure_installation() {
         CONDA_BASE_DIR="${INSTALL_DIR}/conda"
         
         # Conda环境名称选择
-        show_multi_selection_menu "是否使用默认环境名称?" "${ENV_NAME}" 1 "是" "否"
+        show_multi_selection_menu "是否使用默认环境名称?" "${ENV_NAME}" 1 "True" "False"
         local env_choice=$?
         
         if [ $env_choice -eq 2 ]; then
@@ -565,7 +594,7 @@ configure_installation() {
         fi
         
         # NUMA环境变量设置
-        show_multi_selection_menu "是否启用USE_NUMA环境变量?" "否" 2 "是" "否"
+        show_multi_selection_menu "是否启用USE_NUMA环境变量?" "False" 2 "True" "False"
         local numa_choice=$?
         
         if [ $numa_choice -eq 1 ]; then
@@ -579,7 +608,7 @@ configure_installation() {
         fi
         
         # 国内代理选择
-        show_multi_selection_menu "是否使用国内代理和镜像站点?" "是" 1 "是" "否"
+        show_multi_selection_menu "是否使用国内代理和镜像站点?" "True" 1 "True" "False"
         local proxy_choice=$?
         
         if [ $proxy_choice -eq 1 ]; then
@@ -593,7 +622,7 @@ configure_installation() {
         fi
 
         # 编译线程数选择
-        show_multi_selection_menu "是否使用默认线程数?" "${MAX_JOBS}" 1 "是" "否"
+        show_multi_selection_menu "是否使用默认线程数?" "${MAX_JOBS}" 1 "True" "False"
         local jobs_choice=$?
         
         if [ $jobs_choice -eq 2 ]; then
@@ -611,7 +640,7 @@ configure_installation() {
         fi
         
         # 调试模式选择
-        show_multi_selection_menu "是否启用调试模式?" "否" 2 "是" "否"
+        show_multi_selection_menu "是否启用调试模式?" "False" 2 "True" "False"
         local debug_choice=$?
         
         if [ $debug_choice -eq 1 ]; then
@@ -1204,7 +1233,7 @@ clone_repo() {
         if [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
             echo -e "${YELLOW}[WARN] 安装目录不为空${NC}"
             
-            show_selection_menu "安装目录不为空，是否继续?" "是" "否" "1"
+            show_selection_menu "安装目录不为空，是否继续?" "True" "False" "1"
             local continue_choice=$?
             
             if [ $continue_choice -ne 1 ]; then
