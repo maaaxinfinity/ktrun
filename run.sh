@@ -1592,55 +1592,66 @@ export CONDA_ENVS_PATH="'"$ENV_INSTALL_DIR"'"\
     echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
 }
 
-# 创建系统级conda命令符号链接
+# 创建conda命令符号链接到用户主目录
 create_conda_symlinks() {
     local conda_dir="$1"
-    echo -e "${YELLOW}创建系统级conda命令符号链接...${NC}"
+    echo -e "${YELLOW}创建conda符号链接到当前用户主目录...${NC}"
+    
+    # 确定用户主目录和目标目录
+    local home_dir="$HOME"
+    local bin_dir="$home_dir/bin"
     
     # 确保目标目录存在
-    local bin_dir="/usr/local/bin"
     if [ ! -d "$bin_dir" ]; then
         echo -e "${YELLOW}创建目录 $bin_dir...${NC}"
         mkdir -p "$bin_dir"
     fi
     
-    # 检查权限
-    if [ ! -w "$bin_dir" ]; then
-        echo -e "${RED}× 没有权限写入 $bin_dir，尝试使用sudo${NC}"
-        if ! command_exists sudo; then
-            echo -e "${RED}× sudo命令不可用，无法创建系统级符号链接${NC}"
-            return 1
+    # 只创建conda的符号链接
+    local source_path="$conda_dir/bin/conda"
+    local target_path="$bin_dir/conda"
+    
+    if [ -f "$source_path" ]; then
+        echo -e "${YELLOW}创建conda符号链接: $source_path -> $target_path${NC}"
+        ln -sf "$source_path" "$target_path"
+        if [ $? -eq 0 ]; then
+            chmod 755 "$target_path"
+            echo -e "${GREEN}✓ 已创建符号链接: conda${NC}"
+            
+            # 确保bin目录在PATH中
+            if ! echo "$PATH" | grep -q "$bin_dir"; then
+                echo -e "${YELLOW}添加 $bin_dir 到当前用户的PATH...${NC}"
+                echo 'export PATH="$HOME/bin:$PATH"' >> "$home_dir/.bashrc"
+                export PATH="$bin_dir:$PATH"
+            fi
+            
+            # 同步bashrc中的conda初始化
+            echo -e "${YELLOW}同步bashrc中的conda初始化...${NC}"
+            if ! grep -q "# >>> conda initialize >>>" "$home_dir/.bashrc"; then
+                # 如果bashrc中没有conda初始化代码，添加它
+                echo -e "\n# >>> conda initialize >>>" >> "$home_dir/.bashrc"
+                echo "# !! Contents within this block are managed by 'conda init' !!" >> "$home_dir/.bashrc"
+                echo "eval \"\$('$source_path' 'shell.bash' 'hook')\"" >> "$home_dir/.bashrc"
+                echo "# <<< conda initialize <<<" >> "$home_dir/.bashrc"
+                echo -e "${GREEN}✓ 已添加conda初始化到.bashrc${NC}"
+            else
+                # 如果已有conda初始化代码，更新它
+                sed -i -e '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
+# >>> conda initialize >>>\
+# !! Contents within this block are managed by '"'conda init'"' !!\
+eval "$('"'$source_path'"' '"'shell.bash'"' '"'hook'"')"\
+# <<< conda initialize <<<' "$home_dir/.bashrc"
+                echo -e "${GREEN}✓ 已更新.bashrc中的conda初始化代码${NC}"
+            fi
+        else
+            echo -e "${RED}× 创建符号链接失败: conda${NC}"
         fi
+    else
+        echo -e "${RED}× 源conda文件不存在: $source_path${NC}"
     fi
     
-    # 要创建的符号链接列表
-    local symlink_commands=(
-        "conda"
-        "python"
-        "pip"
-        "activate"
-        "conda-env"
-    )
-    
-    # 创建符号链接
-    for cmd in "${symlink_commands[@]}"; do
-        local source_path="$conda_dir/bin/$cmd"
-        local target_path="$bin_dir/$cmd"
-        
-        if [ -f "$source_path" ]; then
-            echo -e "${YELLOW}创建 $cmd 符号链接: $source_path -> $target_path${NC}"
-            ln -sf "$source_path" "$target_path"
-            if [ $? -eq 0 ]; then
-                chmod 755 "$target_path"
-                echo -e "${GREEN}✓ 已创建符号链接: $cmd${NC}"
-            else
-                echo -e "${RED}× 创建符号链接失败: $cmd${NC}"
-            fi
-        fi
-    done
-    
-    echo -e "${GREEN}✓ 完成系统级conda命令符号链接创建${NC}"
-    echo -e "${YELLOW}现在任何用户都可以直接使用conda命令${NC}"
+    echo -e "${GREEN}✓ 完成conda命令符号链接创建${NC}"
+    echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
 }
 
 # 4. 使用conda创建环境
@@ -3230,42 +3241,21 @@ handle_workspace_ownership() {
         fi
         
         if [ -n "$target_user" ] && [ "$target_user" != "root" ]; then
-            echo -e "${YELLOW}将workspace所有权交给用户: $target_user${NC}"
+            echo -e "${YELLOW}将当前目录workspace所有权交给用户: $target_user${NC}"
             
-            # 确保workspace存在
-            if [ -d "$INSTALL_DIR" ]; then
-                chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$INSTALL_DIR"
-                
-                # 特别检查workspace子目录
-                local workspace_dir="$INSTALL_DIR/workspace"
-                if [ -d "$workspace_dir" ]; then
-                    echo -e "${YELLOW}特别处理workspace子目录...${NC}"
-                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$workspace_dir"
-                    chmod -R 755 "$workspace_dir"
-                    echo -e "${GREEN}✓ 已更改workspace子目录所有权和权限${NC}"
-                fi
-                
-                # 也检查当前目录下的workspace
-                if [ -d "./workspace" ]; then
-                    echo -e "${YELLOW}检测到当前目录下的workspace，更新权限...${NC}"
-                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
-                    chmod -R 755 "./workspace"
-                    echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
-                else
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
-                fi
-            else
-                echo -e "${YELLOW}警告: 安装目录不存在${NC}"
-                
-                # 检查当前目录下的workspace
-                if [ -d "./workspace" ]; then
-                    echo -e "${YELLOW}但检测到当前目录下的workspace，更新权限...${NC}"
-                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
-                    chmod -R 755 "./workspace"
-                    echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
-                else
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
-                fi
+            # 获取当前目录
+            local current_dir=$(pwd)
+            
+            # 直接递归修改当前目录下所有文件的所有权
+            echo -e "${YELLOW}递归修改当前目录权限...${NC}"
+            chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$current_dir"
+            echo -e "${GREEN}✓ 已更改当前目录所有权${NC}"
+            
+            # 特别处理workspace目录的权限
+            if [ -d "$current_dir/workspace" ]; then
+                echo -e "${YELLOW}特别处理workspace子目录...${NC}"
+                chmod -R 755 "$current_dir/workspace"
+                echo -e "${GREEN}✓ 已更改workspace子目录权限${NC}"
             fi
             
             # 也更改日志文件的所有权
