@@ -1524,36 +1524,24 @@ update_all_users_path() {
         fi
     fi
     
+    # 创建系统级conda命令符号链接
+    create_conda_symlinks "$conda_dir"
+    
     echo -e "${YELLOW}更新用户 $current_user 的配置文件${NC}"
     
     # 确保conda在当前会话可用
-    export PATH="$conda_dir/bin:$PATH"
+    export PATH="/usr/local/bin:$PATH"
     
-    # 初始化当前会话的conda
-    if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
-        . "$conda_dir/etc/profile.d/conda.sh"
-        echo -e "${GREEN}✓ 已在当前会话中初始化conda${NC}"
-    fi
-    
-    # 准备conda初始化代码
+    # 准备conda初始化代码，使用系统符号链接
     local conda_init_block=$(cat << EOF
 
 # >>> conda initialize >>>
 # !! 由KTransformers安装脚本添加 !!
-# 添加conda到PATH
-if [ -d "$conda_dir/bin" ]; then
-    export PATH="$conda_dir/bin:\$PATH"
-fi
+# 使用系统级符号链接方式
+export PATH="/usr/local/bin:\$PATH"
 
 # 设置环境目录
 export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
-
-# 加载conda初始化脚本
-if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
-    . "$conda_dir/etc/profile.d/conda.sh"
-else
-    export PATH="$conda_dir/bin:\$PATH"
-fi
 # <<< conda initialize <<<
 EOF
 )
@@ -1580,20 +1568,11 @@ EOF
         sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
 # >>> conda initialize >>>\
 # !! 由KTransformers安装脚本更新 !!\
-# 添加conda到PATH\
-if [ -d "'"$conda_dir"'/bin" ]; then\
-    export PATH="'"$conda_dir"'/bin:$PATH"\
-fi\
+# 使用系统级符号链接方式\
+export PATH="/usr/local/bin:\$PATH"\
 \
 # 设置环境目录\
 export CONDA_ENVS_PATH="'"$ENV_INSTALL_DIR"'"\
-\
-# 加载conda初始化脚本\
-if [ -f "'"$conda_dir"'/etc/profile.d/conda.sh" ]; then\
-    . "'"$conda_dir"'/etc/profile.d/conda.sh"\
-else\
-    export PATH="'"$conda_dir"'/bin:$PATH"\
-fi\
 # <<< conda initialize <<<' "$bashrc"
         echo -e "${GREEN}✓ 已更新.bashrc中的conda初始化代码${NC}"
     fi
@@ -1613,10 +1592,10 @@ fi\
     echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
 }
 
-# 创建全局可访问的conda链接
-create_global_conda_links() {
+# 创建系统级conda命令符号链接
+create_conda_symlinks() {
     local conda_dir="$1"
-    echo -e "${YELLOW}创建全局可访问的conda命令链接...${NC}"
+    echo -e "${YELLOW}创建系统级conda命令符号链接...${NC}"
     
     # 确保目标目录存在
     local bin_dir="/usr/local/bin"
@@ -1625,62 +1604,43 @@ create_global_conda_links() {
         mkdir -p "$bin_dir"
     fi
     
-    # 创建conda和python的符号链接
-    local conda_commands=("conda" "python" "pip" "activate" "deactivate")
+    # 检查权限
+    if [ ! -w "$bin_dir" ]; then
+        echo -e "${RED}× 没有权限写入 $bin_dir，尝试使用sudo${NC}"
+        if ! command_exists sudo; then
+            echo -e "${RED}× sudo命令不可用，无法创建系统级符号链接${NC}"
+            return 1
+        fi
+    fi
     
-    for cmd in "${conda_commands[@]}"; do
+    # 要创建的符号链接列表
+    local symlink_commands=(
+        "conda"
+        "python"
+        "pip"
+        "activate"
+        "conda-env"
+    )
+    
+    # 创建符号链接
+    for cmd in "${symlink_commands[@]}"; do
         local source_path="$conda_dir/bin/$cmd"
         local target_path="$bin_dir/$cmd"
         
-        if [ -f "$source_path" ] && [ ! -f "$target_path" ]; then
-            echo -e "${YELLOW}创建 $cmd 的符号链接 $target_path...${NC}"
+        if [ -f "$source_path" ]; then
+            echo -e "${YELLOW}创建 $cmd 符号链接: $source_path -> $target_path${NC}"
             ln -sf "$source_path" "$target_path"
             if [ $? -eq 0 ]; then
-                echo -e "${GREEN}✓ 成功创建 $cmd 的链接${NC}"
+                chmod 755 "$target_path"
+                echo -e "${GREEN}✓ 已创建符号链接: $cmd${NC}"
             else
-                echo -e "${RED}× 创建 $cmd 的链接失败${NC}"
+                echo -e "${RED}× 创建符号链接失败: $cmd${NC}"
             fi
-        elif [ -f "$target_path" ]; then
-            echo -e "${YELLOW}$cmd 的链接已存在，跳过${NC}"
-        else
-            echo -e "${RED}× 源文件 $source_path 不存在，无法创建链接${NC}"
         fi
     done
     
-    # 创建conda激活助手脚本
-    local activate_script="/usr/local/bin/condaactivate"
-    cat > "$activate_script" << EOF
-#!/bin/bash
-# 自动激活conda环境的助手脚本
-
-# 设置环境变量
-export PATH="$conda_dir/bin:\$PATH"
-export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
-
-# 通过source方式加载conda初始化脚本
-if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
-    . "$conda_dir/etc/profile.d/conda.sh"
-    echo "✓ conda已成功初始化"
-    
-    # 如果提供了环境名称，则激活它
-    if [ -n "\$1" ]; then
-        conda activate "\$1"
-        echo "✓ 环境 \$1 已激活"
-    else
-        echo "提示: 使用 'condaactivate 环境名称' 来激活指定环境"
-    fi
-else
-    echo "× 无法找到conda初始化脚本"
-fi
-EOF
-    chmod +x "$activate_script"
-    echo -e "${GREEN}✓ 已创建conda激活助手脚本: $activate_script${NC}"
-    echo -e "${GREEN}✓ 用户可以使用命令 'source $activate_script' 来初始化conda${NC}"
-    
-    # 添加使用说明
-    echo -e "${YELLOW}✨ 提示: 如果用户无法直接使用conda命令，可以通过以下方式激活:${NC}"
-    echo -e "${YELLOW}   1. 使用 'source condaactivate' 命令初始化conda${NC}"
-    echo -e "${YELLOW}   2. 或者手动执行 'export PATH=\"$conda_dir/bin:\$PATH\"'${NC}"
+    echo -e "${GREEN}✓ 完成系统级conda命令符号链接创建${NC}"
+    echo -e "${YELLOW}现在任何用户都可以直接使用conda命令${NC}"
 }
 
 # 4. 使用conda创建环境
@@ -3260,6 +3220,76 @@ completion_message() {
     echo -e "\n${GREEN}祝您使用愉快!${NC}\n"
 }
 
+# 处理工作区所有权的函数
+handle_workspace_ownership() {
+    # 如果当前是root用户，将workspace所有权交给非root用户
+    if [ "$(id -u)" -eq 0 ]; then
+        # 使用配置时选择的安装用户，如果未设置则尝试自动检测
+        local target_user="${INSTALL_USER}"
+        
+        # 如果INSTALL_USER为空或者是root，尝试检测其他非root用户
+        if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
+            # 查找适合的非root用户
+            target_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+            if [ -z "$target_user" ]; then
+                target_user=$SUDO_USER
+            fi
+        fi
+        
+        if [ -n "$target_user" ] && [ "$target_user" != "root" ]; then
+            echo -e "${YELLOW}将workspace所有权交给用户: $target_user${NC}"
+            
+            # 确保workspace存在
+            if [ -d "$INSTALL_DIR" ]; then
+                chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$INSTALL_DIR"
+                
+                # 特别检查workspace子目录
+                local workspace_dir="$INSTALL_DIR/workspace"
+                if [ -d "$workspace_dir" ]; then
+                    echo -e "${YELLOW}特别处理workspace子目录...${NC}"
+                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$workspace_dir"
+                    chmod -R 755 "$workspace_dir"
+                    echo -e "${GREEN}✓ 已更改workspace子目录所有权和权限${NC}"
+                fi
+                
+                # 也检查当前目录下的workspace
+                if [ -d "./workspace" ]; then
+                    echo -e "${YELLOW}检测到当前目录下的workspace，更新权限...${NC}"
+                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
+                    chmod -R 755 "./workspace"
+                    echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
+                else
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                fi
+            else
+                echo -e "${YELLOW}警告: 安装目录不存在${NC}"
+                
+                # 检查当前目录下的workspace
+                if [ -d "./workspace" ]; then
+                    echo -e "${YELLOW}但检测到当前目录下的workspace，更新权限...${NC}"
+                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
+                    chmod -R 755 "./workspace"
+                    echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
+                else
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                fi
+            fi
+            
+            # 也更改日志文件的所有权
+            if [ -f "$LOG_FILE" ]; then
+                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$LOG_FILE"
+            fi
+            
+            # 更改激活脚本的所有权
+            if [ -f "activate_env.sh" ]; then
+                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "activate_env.sh"
+            fi
+        else
+            echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
+        fi
+    fi
+}
 
 # 主函数
 main() {
@@ -3351,73 +3381,8 @@ main() {
     if [ $install_status -eq 0 ]; then
         echo -e "${GREEN}✓ 安装完成！${NC}"
         
-        # 如果当前是root用户，将workspace所有权交给非root用户
-        if [ "$(id -u)" -eq 0 ]; then
-            # 使用配置时选择的安装用户，如果未设置则尝试自动检测
-            local target_user="${INSTALL_USER}"
-            
-            # 如果INSTALL_USER为空或者是root，尝试检测其他非root用户
-            if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
-                # 查找适合的非root用户
-                target_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
-                if [ -z "$target_user" ]; then
-                    target_user=$SUDO_USER
-                fi
-            fi
-            
-            if [ -n "$target_user" ] && [ "$target_user" != "root" ]; then
-                echo -e "${YELLOW}将workspace所有权交给用户: $target_user${NC}"
-                
-                # 确保workspace存在
-                if [ -d "$INSTALL_DIR" ]; then
-                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$INSTALL_DIR"
-                    
-                    # 特别检查workspace子目录
-                    local workspace_dir="$INSTALL_DIR/workspace"
-                    if [ -d "$workspace_dir" ]; then
-                        echo -e "${YELLOW}特别处理workspace子目录...${NC}"
-                        chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$workspace_dir"
-                        chmod -R 755 "$workspace_dir"
-                        echo -e "${GREEN}✓ 已更改workspace子目录所有权和权限${NC}"
-                    fi
-                    
-                    # 也检查当前目录下的workspace
-                    if [ -d "./workspace" ]; then
-                        echo -e "${YELLOW}检测到当前目录下的workspace，更新权限...${NC}"
-                        chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
-                        chmod -R 755 "./workspace"
-                        echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
-                    else
-                        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
-                    fi
-                else
-                    echo -e "${YELLOW}警告: 安装目录不存在${NC}"
-                    
-                    # 检查当前目录下的workspace
-                    if [ -d "./workspace" ]; then
-                        echo -e "${YELLOW}但检测到当前目录下的workspace，更新权限...${NC}"
-                        chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
-                        chmod -R 755 "./workspace"
-                        echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
-                    else
-                        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
-                    fi
-                fi
-                
-                # 也更改日志文件的所有权
-                if [ -f "$LOG_FILE" ]; then
-                    chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$LOG_FILE"
-                fi
-                
-                # 更改激活脚本的所有权
-                if [ -f "activate_env.sh" ]; then
-                    chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "activate_env.sh"
-                fi
-            else
-                echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
-            fi
-        fi
+        # 处理工作区所有权
+        handle_workspace_ownership
         
         completion_message
     else
