@@ -1524,6 +1524,28 @@ update_all_users_path() {
         fi
     fi
     
+    # 修复系统conda可执行文件的权限
+    if [ -f "/usr/local/bin/conda" ]; then
+        echo -e "${YELLOW}检测到系统conda符号链接，修复权限...${NC}"
+        chmod 755 "/usr/local/bin/conda"
+        
+        # 查找符号链接指向的实际conda文件
+        local real_conda_path=$(readlink -f "/usr/local/bin/conda")
+        if [ -f "$real_conda_path" ]; then
+            echo -e "${YELLOW}设置实际conda文件的权限: $real_conda_path${NC}"
+            chmod 755 "$real_conda_path"
+            
+            # 设置conda目录的权限
+            local conda_bin_dir=$(dirname "$real_conda_path")
+            echo -e "${YELLOW}设置conda bin目录的权限: $conda_bin_dir${NC}"
+            chmod 755 "$conda_bin_dir"
+            
+            # 确保conda相关命令都有执行权限
+            echo -e "${YELLOW}确保所有conda相关命令都有执行权限...${NC}"
+            chmod 755 "$conda_bin_dir"/* 2>/dev/null || true
+        fi
+    fi
+    
     # 创建系统级conda命令符号链接
     create_conda_symlinks "$conda_dir"
     
@@ -1532,13 +1554,17 @@ update_all_users_path() {
     # 确保conda在当前会话可用
     export PATH="/usr/local/bin:$PATH"
     
-    # 准备conda初始化代码，使用系统符号链接
+    # 准备conda初始化代码，优先使用用户主目录下的符号链接
     local conda_init_block=$(cat << EOF
 
 # >>> conda initialize >>>
 # !! 由KTransformers安装脚本添加 !!
-# 使用系统级符号链接方式
-export PATH="/usr/local/bin:\$PATH"
+# 优先使用用户主目录下的符号链接
+if [ -f "\$HOME/bin/conda" ]; then
+    export PATH="\$HOME/bin:\$PATH"
+else
+    export PATH="/usr/local/bin:\$PATH"
+fi
 
 # 设置环境目录
 export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
@@ -1568,24 +1594,17 @@ EOF
         sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
 # >>> conda initialize >>>\
 # !! 由KTransformers安装脚本更新 !!\
-# 使用系统级符号链接方式\
-export PATH="/usr/local/bin:\$PATH"\
+# 优先使用用户主目录下的符号链接\
+if [ -f "$HOME/bin/conda" ]; then\
+    export PATH="$HOME/bin:$PATH"\
+else\
+    export PATH="/usr/local/bin:$PATH"\
+fi\
 \
 # 设置环境目录\
-export CONDA_ENVS_PATH="'"$ENV_INSTALL_DIR"'"\
+export CONDA_ENVS_PATH="'"${ENV_INSTALL_DIR}"'"\
 # <<< conda initialize <<<' "$bashrc"
         echo -e "${GREEN}✓ 已更新.bashrc中的conda初始化代码${NC}"
-    fi
-    
-    # 检查并更新.bash_profile（如果存在）
-    local bash_profile="$home_dir/.bash_profile"
-    if [ -f "$bash_profile" ]; then
-        # 确保.bash_profile引用.bashrc
-        if ! grep -q "source.*\.bashrc" "$bash_profile"; then
-            echo -e "${YELLOW}在.bash_profile中添加对.bashrc的引用...${NC}"
-            echo -e "\n# 加载.bashrc（如果存在）\nif [ -f \"$home_dir/.bashrc\" ]; then\n    source \"$home_dir/.bashrc\"\nfi\n" >> "$bash_profile"
-            echo -e "${GREEN}✓ 已更新.bash_profile${NC}"
-        fi
     fi
     
     echo -e "${GREEN}✓ 已完成用户 $current_user 的conda配置${NC}"
@@ -1621,35 +1640,41 @@ create_conda_symlinks() {
         return 1
     fi
     
+    # 创建用户bin目录
     local bin_dir="$home_dir/bin"
-    
-    # 确保目标目录存在
     if [ ! -d "$bin_dir" ]; then
         echo -e "${YELLOW}创建目录 $bin_dir...${NC}"
         if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
             # 以root身份为非root用户创建目录并设置权限
             mkdir -p "$bin_dir"
             chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bin_dir"
+            chmod 755 "$bin_dir"
         else
             mkdir -p "$bin_dir"
+            chmod 755 "$bin_dir"
         fi
     fi
     
-    # 只创建conda的符号链接
+    # 创建用户conda符号链接
     local source_path="$conda_dir/bin/conda"
     local target_path="$bin_dir/conda"
     
     if [ -f "$source_path" ]; then
+        # 确保源文件有执行权限
+        chmod 755 "$source_path"
+        
         echo -e "${YELLOW}创建conda符号链接: $source_path -> $target_path${NC}"
         ln -sf "$source_path" "$target_path"
         if [ $? -eq 0 ]; then
+            # 设置符号链接权限
+            chmod 755 "$target_path"
+            
             # 设置正确的所有权
             if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
                 chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$target_path"
             fi
             
-            chmod 755 "$target_path"
-            echo -e "${GREEN}✓ 已创建符号链接: conda${NC}"
+            echo -e "${GREEN}✓ 已创建用户符号链接: conda${NC}"
             
             # 更新目标用户的bashrc文件
             local bashrc_path="$home_dir/.bashrc"
@@ -1708,6 +1733,32 @@ eval "$('"'$source_path'"' '"'shell.bash'"' '"'hook'"')"\
         fi
     else
         echo -e "${RED}× 源conda文件不存在: $source_path${NC}"
+    fi
+    
+    # 创建系统级符号链接（如果以root用户运行）
+    if [ "$(id -u)" -eq 0 ]; then
+        echo -e "${YELLOW}创建系统级conda符号链接...${NC}"
+        
+        # 确保目标目录存在
+        local sys_bin_dir="/usr/local/bin"
+        if [ ! -d "$sys_bin_dir" ]; then
+            echo -e "${YELLOW}创建系统目录 $sys_bin_dir...${NC}"
+            mkdir -p "$sys_bin_dir"
+            chmod 755 "$sys_bin_dir"
+        fi
+        
+        # 创建系统级符号链接
+        local sys_target_path="$sys_bin_dir/conda"
+        
+        echo -e "${YELLOW}创建系统级conda符号链接: $source_path -> $sys_target_path${NC}"
+        ln -sf "$source_path" "$sys_target_path"
+        if [ $? -eq 0 ]; then
+            # 确保符号链接有正确的权限
+            chmod 755 "$sys_target_path"
+            echo -e "${GREEN}✓ 已创建系统级符号链接: conda${NC}"
+        else
+            echo -e "${RED}× 创建系统级符号链接失败: conda${NC}"
+        fi
     fi
     
     echo -e "${GREEN}✓ 完成conda命令符号链接创建${NC}"
@@ -2275,7 +2326,7 @@ set_use_numa() {
 
 # 9. 下载预编译的flashinfer
 download_flashinfer() {
-    echo -e "${BLUE}[INFO] 安装flashinfer${NC}"
+    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}"
     
 
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
@@ -2914,7 +2965,8 @@ update_git_submodules_with_progress() {
 
 # 安装Flash Attention
 install_flash_attn() {
-    log "INFO" "安装Flash Attention"
+    
+    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}"
 
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
         log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..."
@@ -3081,7 +3133,7 @@ check_best_github_site() {
 
 # 安装Python依赖
 install_python_deps() {
-    echo -e "${BLUE}[步骤 10] 安装Python依赖${NC}"
+    echo -e "${BLUE}[步骤 11] 安装Python依赖${NC}"
     
     cd "$INSTALL_DIR" || {
         echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}"
@@ -3407,11 +3459,9 @@ main() {
     build_libraries || install_status=1
     
     # 安装 Flash Attention
-    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}"
     install_flash_attn || install_status=1
     
     # 安装 FlashInfer
-    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}"
     download_flashinfer || install_status=1
     
     # 安装Python依赖
