@@ -776,7 +776,20 @@ setup_log_file() {
     echo "" >> "$LOG_FILE"
     
 
+    # 设置日志文件权限
     chmod 644 "$LOG_FILE"
+    
+    # 如果是root用户运行，并且有设置INSTALL_USER，则设置日志文件所有权
+    if [ "$(id -u)" -eq 0 ] && [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+        echo -e "${YELLOW}设置日志文件所有权为用户: $INSTALL_USER${NC}"
+        local target_group=$(id -gn $INSTALL_USER 2>/dev/null || echo $INSTALL_USER)
+        chown $INSTALL_USER:$target_group "$LOG_FILE"
+    # 否则如果是以sudo运行，设置回sudo用户所有权
+    elif [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+        echo -e "${YELLOW}设置日志文件所有权为sudo用户: $SUDO_USER${NC}"
+        local target_group=$(id -gn $SUDO_USER 2>/dev/null || echo $SUDO_USER)
+        chown $SUDO_USER:$target_group "$LOG_FILE"
+    fi
     
 
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 日志文件初始化完成" >> "$LOG_FILE"
@@ -3358,27 +3371,48 @@ handle_workspace_ownership() {
             # 获取当前目录
             local current_dir=$(pwd)
             
-            # 直接递归修改当前目录下所有文件的所有权
-            echo -e "${YELLOW}递归修改当前目录权限...${NC}"
-            chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$current_dir"
-            echo -e "${GREEN}✓ 已更改当前目录所有权${NC}"
+            # 获取目标用户的组
+            local target_group=$(id -gn $target_user 2>/dev/null || echo $target_user)
             
-            # 特别处理workspace目录的权限
+            echo -e "${YELLOW}开始设置所有权: $target_user:$target_group${NC}"
+            
+            # 修改当前目录及所有内容的所有权
+            echo -e "${YELLOW}递归修改当前目录及所有内容的所有权...${NC}"
+            
+            # 首先处理日志文件（按照命名模式）
+            echo -e "${YELLOW}处理日志文件...${NC}"
+            find "$current_dir" -maxdepth 1 -name "ktransformers_install_*.log" -exec chown $target_user:$target_group {} \;
+            
+            # 处理workspace目录
             if [ -d "$current_dir/workspace" ]; then
-                echo -e "${YELLOW}特别处理workspace子目录...${NC}"
+                echo -e "${YELLOW}处理workspace目录...${NC}"
+                chown -R $target_user:$target_group "$current_dir/workspace"
                 chmod -R 755 "$current_dir/workspace"
-                echo -e "${GREEN}✓ 已更改workspace子目录权限${NC}"
+                echo -e "${GREEN}✓ 已设置workspace目录所有权和权限${NC}"
             fi
             
-            # 也更改日志文件的所有权
-            if [ -f "$LOG_FILE" ]; then
-                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$LOG_FILE"
+            # 处理.git目录（如果存在）
+            if [ -d "$current_dir/.git" ]; then
+                echo -e "${YELLOW}处理.git目录...${NC}"
+                chown -R $target_user:$target_group "$current_dir/.git"
+                echo -e "${GREEN}✓ 已设置.git目录所有权${NC}"
             fi
             
-            # 更改激活脚本的所有权
-            if [ -f "activate_env.sh" ]; then
-                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "activate_env.sh"
+            # 处理所有普通文件
+            echo -e "${YELLOW}处理所有普通文件...${NC}"
+            find "$current_dir" -maxdepth 1 -type f -exec chown $target_user:$target_group {} \;
+            
+            # 处理激活脚本
+            if [ -f "$current_dir/activate_env.sh" ]; then
+                chown $target_user:$target_group "$current_dir/activate_env.sh"
+                chmod 755 "$current_dir/activate_env.sh"
+                echo -e "${GREEN}✓ 已设置激活脚本权限${NC}"
             fi
+            
+            # 确保当前目录本身也是正确的所有权
+            chown $target_user:$target_group "$current_dir"
+            
+            echo -e "${GREEN}✓ 已完成目录所有权设置${NC}"
         else
             echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
