@@ -1595,16 +1595,44 @@ export CONDA_ENVS_PATH="'"$ENV_INSTALL_DIR"'"\
 # 创建conda命令符号链接到用户主目录
 create_conda_symlinks() {
     local conda_dir="$1"
-    echo -e "${YELLOW}创建conda符号链接到当前用户主目录...${NC}"
     
-    # 确定用户主目录和目标目录
+    # 确定主目录和目标用户
+    local target_user="$USER"
     local home_dir="$HOME"
+    
+    # 如果是root用户，且有设置非root的安装用户
+    if [ "$(id -u)" -eq 0 ] && [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+        target_user="$INSTALL_USER"
+        home_dir="/home/$INSTALL_USER"
+        
+        # 处理符号链接情况
+        if [ -L "$home_dir" ]; then
+            home_dir=$(readlink -f "$home_dir")
+        fi
+        
+        echo -e "${YELLOW}创建conda符号链接到目标用户 ${target_user} 的主目录...${NC}"
+    else
+        echo -e "${YELLOW}创建conda符号链接到当前用户主目录...${NC}"
+    fi
+    
+    # 确保用户主目录存在
+    if [ ! -d "$home_dir" ]; then
+        echo -e "${RED}× 错误: 用户主目录 $home_dir 不存在${NC}"
+        return 1
+    fi
+    
     local bin_dir="$home_dir/bin"
     
     # 确保目标目录存在
     if [ ! -d "$bin_dir" ]; then
         echo -e "${YELLOW}创建目录 $bin_dir...${NC}"
-        mkdir -p "$bin_dir"
+        if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+            # 以root身份为非root用户创建目录并设置权限
+            mkdir -p "$bin_dir"
+            chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bin_dir"
+        else
+            mkdir -p "$bin_dir"
+        fi
     fi
     
     # 只创建conda的符号链接
@@ -1615,33 +1643,65 @@ create_conda_symlinks() {
         echo -e "${YELLOW}创建conda符号链接: $source_path -> $target_path${NC}"
         ln -sf "$source_path" "$target_path"
         if [ $? -eq 0 ]; then
+            # 设置正确的所有权
+            if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$target_path"
+            fi
+            
             chmod 755 "$target_path"
             echo -e "${GREEN}✓ 已创建符号链接: conda${NC}"
             
+            # 更新目标用户的bashrc文件
+            local bashrc_path="$home_dir/.bashrc"
+            
             # 确保bin目录在PATH中
-            if ! echo "$PATH" | grep -q "$bin_dir"; then
-                echo -e "${YELLOW}添加 $bin_dir 到当前用户的PATH...${NC}"
-                echo 'export PATH="$HOME/bin:$PATH"' >> "$home_dir/.bashrc"
-                export PATH="$bin_dir:$PATH"
+            if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$bashrc_path" 2>/dev/null; then
+                echo -e "${YELLOW}添加 $bin_dir 到用户 $target_user 的PATH...${NC}"
+                echo 'export PATH="$HOME/bin:$PATH"' >> "$bashrc_path"
+                
+                # 如果是当前用户，也更新当前环境的PATH
+                if [ "$target_user" = "$USER" ]; then
+                    export PATH="$bin_dir:$PATH"
+                fi
+                
+                # 确保文件所有权正确
+                if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+                    chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bashrc_path"
+                fi
             fi
             
             # 同步bashrc中的conda初始化
-            echo -e "${YELLOW}同步bashrc中的conda初始化...${NC}"
-            if ! grep -q "# >>> conda initialize >>>" "$home_dir/.bashrc"; then
+            echo -e "${YELLOW}同步 $target_user 的.bashrc中的conda初始化...${NC}"
+            if ! grep -q "# >>> conda initialize >>>" "$bashrc_path" 2>/dev/null; then
                 # 如果bashrc中没有conda初始化代码，添加它
-                echo -e "\n# >>> conda initialize >>>" >> "$home_dir/.bashrc"
-                echo "# !! Contents within this block are managed by 'conda init' !!" >> "$home_dir/.bashrc"
-                echo "eval \"\$('$source_path' 'shell.bash' 'hook')\"" >> "$home_dir/.bashrc"
-                echo "# <<< conda initialize <<<" >> "$home_dir/.bashrc"
-                echo -e "${GREEN}✓ 已添加conda初始化到.bashrc${NC}"
+                echo -e "\n# >>> conda initialize >>>" >> "$bashrc_path"
+                echo "# !! Contents within this block are managed by 'conda init' !!" >> "$bashrc_path"
+                echo "eval \"\$('$source_path' 'shell.bash' 'hook')\"" >> "$bashrc_path"
+                echo "# <<< conda initialize <<<" >> "$bashrc_path"
+                echo -e "${GREEN}✓ 已添加conda初始化到 $target_user 的.bashrc${NC}"
             else
                 # 如果已有conda初始化代码，更新它
-                sed -i -e '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
+                if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+                    # 以root用户身份修改非root用户的文件需要特殊处理
+                    sed -i -e '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
 # >>> conda initialize >>>\
 # !! Contents within this block are managed by '"'conda init'"' !!\
 eval "$('"'$source_path'"' '"'shell.bash'"' '"'hook'"')"\
-# <<< conda initialize <<<' "$home_dir/.bashrc"
-                echo -e "${GREEN}✓ 已更新.bashrc中的conda初始化代码${NC}"
+# <<< conda initialize <<<' "$bashrc_path"
+                else
+                    # 修改自己的文件
+                    sed -i -e '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
+# >>> conda initialize >>>\
+# !! Contents within this block are managed by '"'conda init'"' !!\
+eval "$('"'$source_path'"' '"'shell.bash'"' '"'hook'"')"\
+# <<< conda initialize <<<' "$bashrc_path"
+                fi
+                echo -e "${GREEN}✓ 已更新 $target_user 的.bashrc中的conda初始化代码${NC}"
+            fi
+            
+            # 确保文件所有权正确
+            if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bashrc_path"
             fi
         else
             echo -e "${RED}× 创建符号链接失败: conda${NC}"
@@ -1651,7 +1711,7 @@ eval "$('"'$source_path'"' '"'shell.bash'"' '"'hook'"')"\
     fi
     
     echo -e "${GREEN}✓ 完成conda命令符号链接创建${NC}"
-    echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
+    echo -e "${YELLOW}提示: 用户 $target_user 需要输入 'source ~/.bashrc' 使更改立即生效${NC}"
 }
 
 # 4. 使用conda创建环境
