@@ -1507,58 +1507,48 @@ install_conda() {
 # 更新所有用户的PATH以包含conda
 update_all_users_path() {
     local conda_dir="$1"
-    echo -e "${YELLOW}更新所有用户的PATH以包含conda: $conda_dir${NC}"
+    echo -e "${YELLOW}更新用户PATH以包含conda: $conda_dir${NC}"
     
-    # 创建系统级conda初始化脚本
-    echo -e "${YELLOW}创建系统级conda初始化脚本...${NC}"
-    cat > /etc/profile.d/conda.sh << EOF
-# 添加conda到系统PATH
-export PATH="$conda_dir/bin:\$PATH"
-
-# 设置conda环境目录
-export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
-
-# 为了兼容不同的shell，添加conda初始化
-if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
-    . "$conda_dir/etc/profile.d/conda.sh"
-fi
-EOF
-    chmod +x /etc/profile.d/conda.sh
+    # 获取当前用户
+    local current_user=$(whoami)
+    local home_dir
     
-    # 确保/etc/bashrc中source该文件
-    if [ -f "/etc/bashrc" ] && ! grep -q "/etc/profile.d/conda.sh" /etc/bashrc; then
-        echo -e "${YELLOW}添加conda初始化到/etc/bashrc...${NC}"
-        echo "[ -f /etc/profile.d/conda.sh ] && . /etc/profile.d/conda.sh" >> /etc/bashrc
+    if [ "$current_user" = "root" ]; then
+        home_dir="/root"
+    else
+        # 检查用户主目录是否为符号链接
+        if [ -L "/home/$current_user" ]; then
+            home_dir=$(readlink -f "/home/$current_user")
+        else
+            home_dir="/home/$current_user"
+        fi
     fi
     
-    # 为所有用户添加conda初始化到.bashrc
-    echo -e "${YELLOW}为用户添加conda初始化到.bashrc...${NC}"
-    local all_users=($(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd))
-    all_users+=("root")  # 也包括root用户
+    echo -e "${YELLOW}更新用户 $current_user 的配置文件${NC}"
     
-    for user in "${all_users[@]}"; do
-        local home_dir
-        if [ "$user" = "root" ]; then
-            home_dir="/root"
-        else
-            # 检查用户主目录是否为符号链接
-            if [ -L "/home/$user" ]; then
-                home_dir=$(readlink -f "/home/$user")
-            else
-                home_dir="/home/$user"
-            fi
-        fi
-        
-        local bashrc="$home_dir/.bashrc"
-        
-        if [ -f "$bashrc" ] && ! grep -q "conda.sh" "$bashrc"; then
-            echo -e "${YELLOW}添加conda初始化到 $user 的.bashrc...${NC}"
-            cat >> "$bashrc" << EOF
+    # 确保conda在当前会话可用
+    export PATH="$conda_dir/bin:$PATH"
+    
+    # 初始化当前会话的conda
+    if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+        . "$conda_dir/etc/profile.d/conda.sh"
+        echo -e "${GREEN}✓ 已在当前会话中初始化conda${NC}"
+    fi
+    
+    # 准备conda初始化代码
+    local conda_init_block=$(cat << EOF
 
 # >>> conda initialize >>>
 # !! 由KTransformers安装脚本添加 !!
-export PATH="$conda_dir/bin:\$PATH"
+# 添加conda到PATH
+if [ -d "$conda_dir/bin" ]; then
+    export PATH="$conda_dir/bin:\$PATH"
+fi
+
+# 设置环境目录
 export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
+
+# 加载conda初始化脚本
 if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
     . "$conda_dir/etc/profile.d/conda.sh"
 else
@@ -1566,15 +1556,131 @@ else
 fi
 # <<< conda initialize <<<
 EOF
-            
-            # 设置正确的所有权
-            if [ "$user" != "root" ] && [ "$(id -u)" -eq 0 ]; then
-                chown $user:$(id -gn $user 2>/dev/null || echo $user) "$bashrc"
+)
+    
+    # 更新用户的.bashrc文件
+    local bashrc="$home_dir/.bashrc"
+    
+    # 检查.bashrc是否存在
+    if [ ! -f "$bashrc" ]; then
+        echo -e "${YELLOW}.bashrc不存在，正在创建...${NC}"
+        touch "$bashrc"
+    fi
+    
+    # 检查.bashrc是否已包含conda初始化
+    if ! grep -q "conda initialize" "$bashrc"; then
+        echo -e "${GREEN}✓ 添加conda初始化到.bashrc...${NC}"
+        echo "$conda_init_block" >> "$bashrc"
+        echo -e "${GREEN}✓ 已更新.bashrc${NC}"
+    else
+        echo -e "${YELLOW}.bashrc已包含conda初始化，更新现有配置...${NC}"
+        # 备份原文件
+        cp "$bashrc" "$bashrc.bak.$(date +%Y%m%d%H%M%S)"
+        # 替换旧的conda初始化块
+        sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
+# >>> conda initialize >>>\
+# !! 由KTransformers安装脚本更新 !!\
+# 添加conda到PATH\
+if [ -d "'"$conda_dir"'/bin" ]; then\
+    export PATH="'"$conda_dir"'/bin:$PATH"\
+fi\
+\
+# 设置环境目录\
+export CONDA_ENVS_PATH="'"$ENV_INSTALL_DIR"'"\
+\
+# 加载conda初始化脚本\
+if [ -f "'"$conda_dir"'/etc/profile.d/conda.sh" ]; then\
+    . "'"$conda_dir"'/etc/profile.d/conda.sh"\
+else\
+    export PATH="'"$conda_dir"'/bin:$PATH"\
+fi\
+# <<< conda initialize <<<' "$bashrc"
+        echo -e "${GREEN}✓ 已更新.bashrc中的conda初始化代码${NC}"
+    fi
+    
+    # 检查并更新.bash_profile（如果存在）
+    local bash_profile="$home_dir/.bash_profile"
+    if [ -f "$bash_profile" ]; then
+        # 确保.bash_profile引用.bashrc
+        if ! grep -q "source.*\.bashrc" "$bash_profile"; then
+            echo -e "${YELLOW}在.bash_profile中添加对.bashrc的引用...${NC}"
+            echo -e "\n# 加载.bashrc（如果存在）\nif [ -f \"$home_dir/.bashrc\" ]; then\n    source \"$home_dir/.bashrc\"\nfi\n" >> "$bash_profile"
+            echo -e "${GREEN}✓ 已更新.bash_profile${NC}"
+        fi
+    fi
+    
+    echo -e "${GREEN}✓ 已完成用户 $current_user 的conda配置${NC}"
+    echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
+}
+
+# 创建全局可访问的conda链接
+create_global_conda_links() {
+    local conda_dir="$1"
+    echo -e "${YELLOW}创建全局可访问的conda命令链接...${NC}"
+    
+    # 确保目标目录存在
+    local bin_dir="/usr/local/bin"
+    if [ ! -d "$bin_dir" ]; then
+        echo -e "${YELLOW}创建目录 $bin_dir...${NC}"
+        mkdir -p "$bin_dir"
+    fi
+    
+    # 创建conda和python的符号链接
+    local conda_commands=("conda" "python" "pip" "activate" "deactivate")
+    
+    for cmd in "${conda_commands[@]}"; do
+        local source_path="$conda_dir/bin/$cmd"
+        local target_path="$bin_dir/$cmd"
+        
+        if [ -f "$source_path" ] && [ ! -f "$target_path" ]; then
+            echo -e "${YELLOW}创建 $cmd 的符号链接 $target_path...${NC}"
+            ln -sf "$source_path" "$target_path"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✓ 成功创建 $cmd 的链接${NC}"
+            else
+                echo -e "${RED}× 创建 $cmd 的链接失败${NC}"
             fi
+        elif [ -f "$target_path" ]; then
+            echo -e "${YELLOW}$cmd 的链接已存在，跳过${NC}"
+        else
+            echo -e "${RED}× 源文件 $source_path 不存在，无法创建链接${NC}"
         fi
     done
     
-    echo -e "${GREEN}✓ 已更新所有用户的PATH${NC}"
+    # 创建conda激活助手脚本
+    local activate_script="/usr/local/bin/condaactivate"
+    cat > "$activate_script" << EOF
+#!/bin/bash
+# 自动激活conda环境的助手脚本
+
+# 设置环境变量
+export PATH="$conda_dir/bin:\$PATH"
+export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
+
+# 通过source方式加载conda初始化脚本
+if [ -f "$conda_dir/etc/profile.d/conda.sh" ]; then
+    . "$conda_dir/etc/profile.d/conda.sh"
+    echo "✓ conda已成功初始化"
+    
+    # 如果提供了环境名称，则激活它
+    if [ -n "\$1" ]; then
+        conda activate "\$1"
+        echo "✓ 环境 \$1 已激活"
+    else
+        echo "提示: 使用 'condaactivate 环境名称' 来激活指定环境"
+    fi
+else
+    echo "× 无法找到conda初始化脚本"
+fi
+EOF
+    chmod +x "$activate_script"
+    echo -e "${GREEN}✓ 已创建conda激活助手脚本: $activate_script${NC}"
+    echo -e "${GREEN}✓ 用户可以使用命令 'source $activate_script' 来初始化conda${NC}"
+    
+    # 添加使用说明
+    echo -e "${YELLOW}✨ 提示: 如果用户无法直接使用conda命令，可以通过以下方式激活:${NC}"
+    echo -e "${YELLOW}   1. 使用 'source condaactivate' 命令初始化conda${NC}"
+    echo -e "${YELLOW}   2. 或者手动执行 'export PATH=\"$conda_dir/bin:\$PATH\"'${NC}"
 }
 
 # 4. 使用conda创建环境
@@ -3265,11 +3371,37 @@ main() {
                 # 确保workspace存在
                 if [ -d "$INSTALL_DIR" ]; then
                     chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$INSTALL_DIR"
-                    echo -e "${GREEN}✓ 已更改workspace所有权${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将workspace所有权交给: $target_user" >> "$LOG_FILE"
+                    
+                    # 特别检查workspace子目录
+                    local workspace_dir="$INSTALL_DIR/workspace"
+                    if [ -d "$workspace_dir" ]; then
+                        echo -e "${YELLOW}特别处理workspace子目录...${NC}"
+                        chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$workspace_dir"
+                        chmod -R 755 "$workspace_dir"
+                        echo -e "${GREEN}✓ 已更改workspace子目录所有权和权限${NC}"
+                    fi
+                    
+                    # 也检查当前目录下的workspace
+                    if [ -d "./workspace" ]; then
+                        echo -e "${YELLOW}检测到当前目录下的workspace，更新权限...${NC}"
+                        chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
+                        chmod -R 755 "./workspace"
+                        echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
+                    else
+                        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                    fi
                 else
-                    echo -e "${YELLOW}警告: workspace目录不存在${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                    echo -e "${YELLOW}警告: 安装目录不存在${NC}"
+                    
+                    # 检查当前目录下的workspace
+                    if [ -d "./workspace" ]; then
+                        echo -e "${YELLOW}但检测到当前目录下的workspace，更新权限...${NC}"
+                        chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "./workspace"
+                        chmod -R 755 "./workspace"
+                        echo -e "${GREEN}✓ 已更改当前目录下workspace所有权和权限${NC}"
+                    else
+                        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
+                    fi
                 fi
                 
                 # 也更改日志文件的所有权
