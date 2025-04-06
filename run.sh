@@ -1949,23 +1949,8 @@ detect_pytorch_cuda_version() {
 # 安装并验证PyTorch
 install_pytorch() {
     echo -e "${BLUE}[步骤 6] 安装GPU版本PyTorch${NC}"
-    
-    if ! command_exists pip; then
-        echo -e "${YELLOW}pip命令不存在，尝试安装...${NC}"
-        if command_exists conda; then
-            if ! retry_command_with_logging "conda install -y pip"; then
-                echo -e "${RED}× pip安装失败${NC}"
-                return 1
-            fi
-        else
-            if ! DEBIAN_FRONTEND=noninteractive apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip; then
-                echo -e "${RED}× pip安装失败${NC}"
-                return 1
-            fi
-        fi
-    fi
-    
 
+    
     local torch_version=""
     local install_success=false
     
@@ -1988,14 +1973,14 @@ install_pytorch() {
     elif [[ "$current_pip_index" == *"mirrors.tuna.tsinghua.edu.cn"* ]]; then
         echo -e "${YELLOW}检测到已配置清华镜像源，将继续使用${NC}"
         torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
-    elif ping -c 1 mirrors.ustc.edu.cn &>/dev/null; then
+    elif [ "${USE_GHPROXY:-0}" = "1" ]; then
+        # 国内环境，使用镜像站
         torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
-        echo -e "${YELLOW}检测到国内网络环境，使用中科大镜像源${NC}"
-    elif ping -c 1 mirrors.tuna.tsinghua.edu.cn &>/dev/null; then
-        torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
-        echo -e "${YELLOW}检测到国内网络环境，使用清华镜像源${NC}"
+        echo -e "${YELLOW}根据用户设置使用中科大镜像源${NC}"
     else
+        # 国外环境，使用官方源
         torch_mirror="https://download.pytorch.org/whl"
+        echo -e "${YELLOW}根据用户设置使用官方源${NC}"
     fi
     
 
@@ -2252,9 +2237,17 @@ download_flashinfer() {
     local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
     local cuda_minor=$(echo "$CUDA_VERSION" | cut -d. -f2)
     
+
+    local actual_formatted_cuda="$FORMATTED_CUDA_VERSION"
+    
+
     if [ "$cuda_major" -gt 12 ] || ([ "$cuda_major" -eq 12 ] && [ "$cuda_minor" -gt 4 ]); then
         echo -e "${YELLOW}检测到CUDA版本 ${CUDA_VERSION} 高于12.4，将使用cu124预编译包（向下兼容）${NC}"
         FORMATTED_CUDA_VERSION="cu124"
+    else
+
+        FORMATTED_CUDA_VERSION="cu${cuda_major}${cuda_minor}"
+        echo -e "${YELLOW}使用CUDA版本格式: ${FORMATTED_CUDA_VERSION}${NC}"
     fi
     
 
