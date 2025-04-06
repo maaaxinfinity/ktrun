@@ -132,7 +132,7 @@ NC='\033[0m'
 # 全局变量
 #--------------------
 # 安装配置
-INSTALL_DIR="$(pwd)/workspace"  # 安装目录
+INSTALL_DIR=""                  # 安装目录，将在select_ktrans_version中设置
 ENV_INSTALL_DIR=""              # 环境安装目录，将在configure_installation中设置
 CONDA_BASE_DIR=""               # Conda基础目录，将在configure_installation中设置
 ENV_NAME=""                     # Conda环境名称，将基于选择的版本号自动生成
@@ -211,12 +211,18 @@ select_ktrans_version() {
     if [ $choice -ge 1 ] && [ $choice -le ${#versions[@]} ]; then
         KTRANS_VERSION="${versions[$((choice-1))]}"
         
-        # 根据版本号生成环境名称
+        # 根据版本号生成环境名称和安装目录名
         # 去掉v前缀,然后去掉小数点
-        ENV_NAME="ktrans_$(echo $KTRANS_VERSION | sed 's/^v//' | sed 's/\.//g')"
+        local version_str=$(echo $KTRANS_VERSION | sed 's/^v//' | sed 's/\.//g')
+        ENV_NAME="ktrans_${version_str}"
+        
+        # 设置默认安装目录为当前目录下的workspace/kt_版本号
+        local workspace_dir="$(pwd)/workspace"
+        INSTALL_DIR="${workspace_dir}/kt_${version_str}"
         
         echo -e "${GREEN}已选择版本: $KTRANS_VERSION${NC}"
         echo -e "${GREEN}环境名称将设为: $ENV_NAME${NC}"
+        echo -e "${GREEN}默认安装目录: $INSTALL_DIR${NC}"
         return 0  # 明确返回成功状态
     else
         echo -e "${RED}无效的选择${NC}"
@@ -1009,191 +1015,131 @@ check_root() {
     fi
 }
 
-# 检查并安装必要的工具
-check_required_tools() {
-    echo -e "${BLUE}[准备工作] 检查必要工具${NC}"
+#0 检查并安装所有依赖和工具
+setup_dependencies() {
+    echo -e "${BLUE}[准备工作] 设置系统依赖和工具${NC}"
+    
+    # 基础工具列表
+    local essential_tools=("git" "bc" "wget" "timeout" "sed" "awk" "mktemp")
+    # 构建工具列表
+    local build_tools=("make" "cmake" "gcc" "g++" "add-apt-repository")
     
     local missing_tools=()
-    local essential_tools=("git" "bc" "wget" "timeout" "sed" "awk" "mktemp")
     
-    if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 检查以下必要工具: ${essential_tools[*]}${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 检查必要工具: ${essential_tools[*]}" >> "$LOG_FILE"
+    # 1. 检查Git
+    log "INFO" "[步骤 1] 检测git"
+    if ! command_exists git; then
+        log "WARN" "git未安装，将在后续安装"
+    else
+        log "SUCCESS" "git已安装"
     fi
     
-    for tool in "${essential_tools[@]}"; do
+    # 2. 检查所有工具
+    log "INFO" "检查基础工具和构建工具"
+    for tool in "${essential_tools[@]}" "${build_tools[@]}"; do
         if ! command_exists "$tool"; then
             missing_tools+=("$tool")
-            echo -e "${YELLOW}缺少必要工具: $tool${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 缺少必要工具: $tool" >> "$LOG_FILE"
+            log "WARN" "缺少工具: $tool"
         elif [ $DEBUG_MODE -eq 1 ]; then
-
-            echo -e "${CYAN}[调试] $tool 已安装: $(which $tool)${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] $tool 已安装: $(which $tool)" >> "$LOG_FILE"
+            log "DEBUG" "$tool 已安装: $(which $tool)"
         fi
     done
     
+    # 3. 更新软件包列表 - 仅做一次
+    log "INFO" "更新软件包列表"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get update -y; then
+        log "ERROR" "更新包管理器失败"
+        log "WARN" "将尝试继续安装"
+    fi
+    
+    # 4. 安装缺少的工具
     if [ ${#missing_tools[@]} -gt 0 ]; then
-        echo -e "${YELLOW}正在安装缺少的工具...${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 正在安装缺少的工具: ${missing_tools[*]}" >> "$LOG_FILE"
+        log "INFO" "正在安装缺少的工具: ${missing_tools[*]}"
         
-
-        if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[调试] 更新软件包列表${NC}"
-        fi
+        # 安装构建基础包
+        log "INFO" "安装构建基础包"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake software-properties-common
         
-        if ! DEBIAN_FRONTEND=noninteractive apt-get update -y; then
-            echo -e "${RED}更新包管理器失败${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 更新包管理器失败" >> "$LOG_FILE"
-            return 1
-        fi
-        
-
+        # 逐个安装缺少的工具
         for tool in "${missing_tools[@]}"; do
-            echo -e "${YELLOW}正在安装: $tool${NC}"
-            
-            if [ $DEBUG_MODE -eq 1 ]; then
-                echo -e "${CYAN}[调试] 开始安装 $tool${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始安装 $tool" >> "$LOG_FILE"
-            fi
+            log "INFO" "安装: $tool"
             
             case "$tool" in
+                "git")
+                    if ! retry_command_with_logging "apt-get install -y git" 300; then
+                        log "ERROR" "git安装失败"
+                        return 1
+                    fi
+                    ;;
                 "bc")
                     DEBIAN_FRONTEND=noninteractive apt-get install -y bc
-                    ;;
-                "git")
-                    DEBIAN_FRONTEND=noninteractive apt-get install -y git
                     ;;
                 "wget")
                     DEBIAN_FRONTEND=noninteractive apt-get install -y wget
                     ;;
-                "timeout")
+                "timeout"|"sed"|"awk"|"mktemp")
                     DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils
                     ;;
-                "sed"|"awk"|"mktemp")
-                    DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils
+                "make"|"gcc"|"g++")
+                    # 已在build-essential包中
+                    ;;
+                "cmake")
+                    # 已单独安装
+                    ;;
+                "add-apt-repository")
+                    # 已在software-properties-common包中
                     ;;
                 *)
                     DEBIAN_FRONTEND=noninteractive apt-get install -y "$tool"
                     ;;
             esac
             
-            if command_exists "$tool"; then
-                echo -e "${GREEN}✓ 已安装: $tool${NC}"
-                if [ $DEBUG_MODE -eq 1 ]; then
-                    echo -e "${CYAN}[调试] $tool 安装成功: $(which $tool)${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] $tool 安装成功: $(which $tool)" >> "$LOG_FILE"
-                    
-
-                    if $tool --version &>/dev/null; then
-                        echo -e "${CYAN}[调试] $tool 版本: $($tool --version | head -n 1)${NC}"
-                        echo "[$(date +"%Y-%m-%d %H:%M:%S")] $tool 版本: $($tool --version | head -n 1)" >> "$LOG_FILE"
-                    fi
-                fi
-            else
-                echo -e "${RED}× 安装失败: $tool${NC}"
-                echo -e "${RED}请手动安装必要工具后再运行脚本${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 安装失败: $tool" >> "$LOG_FILE"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 请手动安装必要工具后再运行脚本" >> "$LOG_FILE"
-                return 1
-            fi
-        done
-        
-        echo -e "${GREEN}✓ 所有必要工具安装完成${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 所有必要工具安装完成" >> "$LOG_FILE"
-    else
-        echo -e "${GREEN}✓ 所有必要工具已安装${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 所有必要工具已安装" >> "$LOG_FILE"
-    fi
-    
-    return 0
-}
-
-# 检查必要的构建工具
-check_build_tools() {
-    log "INFO" "[准备工作] 检查构建工具"
-    
-    local build_tools=("make" "cmake" "gcc" "g++" "add-apt-repository")
-    local missing_tools=()
-    
-    for tool in "${build_tools[@]}"; do
-        if ! command_exists "$tool"; then
-            missing_tools+=("$tool")
-            log "WARN" "缺少构建工具: $tool"
-        fi
-    done
-    
-    if [ ${#missing_tools[@]} -gt 0 ]; then
-        log "INFO" "正在安装缺少的构建工具..."
-        
-
-        if ! DEBIAN_FRONTEND=noninteractive apt-get update -y; then
-            log "ERROR" "更新包管理器失败"
-            return 1
-        fi
-        
-
-        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common; then
-            log "ERROR" "安装software-properties-common失败"
-            log "WARN" "继续尝试安装其他工具"
-        fi
-        
-
-        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake; then
-            log "ERROR" "安装build-essential和cmake失败"
-            log "WARN" "继续尝试安装其他工具"
-        fi
-        
-
-        local still_missing=()
-        for tool in "${missing_tools[@]}"; do
             if ! command_exists "$tool"; then
-                still_missing+=("$tool")
                 log "ERROR" "工具 $tool 安装失败"
+                if [ "$tool" = "git" ]; then
+                    return 1  # git是必需的，如果安装失败就退出
+                fi
             else
                 log "SUCCESS" "已安装: $tool"
             fi
         done
         
-        if [ ${#still_missing[@]} -gt 0 ]; then
-            log "WARN" "部分构建工具安装失败，可能影响后续步骤"
-
-        else
-            log "SUCCESS" "所有构建工具安装完成"
-        fi
+        log "SUCCESS" "所有基本工具安装完成"
     else
-        log "SUCCESS" "所有构建工具已安装"
+        log "SUCCESS" "所有基本工具已安装"
     fi
     
+    # 5. 安装额外系统依赖
+    log "INFO" "安装额外系统依赖"
+    
+    # 开发相关依赖
+    log "INFO" "安装开发相关依赖"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        python3-dev \
+        ninja-build \
+        pkg-config \
+        libcurl4-openssl-dev \
+        libopenblas-dev \
+        libomp-dev
+    
+    # 网络相关依赖
+    log "INFO" "安装网络相关依赖"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        curl \
+        ca-certificates
+    
+    # 系统工具依赖
+    log "INFO" "安装系统工具依赖"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        lsb-release \
+        gnupg \
+        apt-transport-https
+    
+    log "SUCCESS" "所有依赖和工具设置完成"
     return 0
 }
 
-# 1. 检测git
-install_git() {
-    log "INFO" "[步骤 1] 检测git"
-    
-    if command_exists git; then
-        log "SUCCESS" "git已安装"
-    else
-        log "WARN" "git未安装，正在安装..."
-        
-        if retry_command_with_logging "apt-get update && apt-get install -y git" 300; then
-            if command_exists git; then
-                log "SUCCESS" "git安装成功"
-            else
-                log "ERROR" "git安装失败，虽然命令执行成功但找不到git命令"
-                return 1
-            fi
-        else
-            log "ERROR" "git安装失败"
-            return 1
-        fi
-    fi
-    
-    return 0
-}
-
-# 1.5 测试GitHub连通性
+# 1. 测试GitHub连通性
 test_github_connectivity() {
     log "INFO" "测试GitHub连通性"
     
@@ -1230,7 +1176,7 @@ clone_repo() {
         if [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
             echo -e "${YELLOW}[WARN] 安装目录不为空${NC}"
             
-            show_selection_menu "安装目录不为空，是否继续?" "True" "False" "1"
+            show_multi_selection_menu "安装目录不为空，是否继续?" "True" 1 "True" "False"
             local continue_choice=$?
             
             if [ $continue_choice -ne 1 ]; then
@@ -1381,6 +1327,9 @@ install_conda() {
                 "$home_dir/miniconda3/bin/conda"
                 "$home_dir/anaconda3/bin/conda"
                 "$home_dir/conda/bin/conda"
+                "$home_dir/.conda/bin/conda"
+                "$home_dir/.miniconda3/bin/conda"
+                "$home_dir/.anaconda3/bin/conda"
             )
             
             for conda_path in "${possible_conda_paths[@]}"; do
@@ -1399,6 +1348,8 @@ install_conda() {
             "/usr/local/anaconda3/bin/conda"
             "/usr/local/conda/bin/conda"
             "/opt/conda/bin/conda"
+            "/opt/miniconda3/bin/conda"
+            "/opt/anaconda3/bin/conda"
         )
         
         for conda_path in "${system_conda_paths[@]}"; do
@@ -1421,6 +1372,52 @@ install_conda() {
         
         # 确保当前环境中conda可用
         export PATH="$conda_base_dir/bin:$PATH"
+        
+        # 检查是否已经有conda环境变量
+        if ! command_exists conda; then
+            echo -e "${YELLOW}检测到conda但环境变量未配置，正在为当前会话注册conda...${NC}"
+            
+            # 尝试多种方法激活conda
+            # 方法1: 设置PATH环境变量
+            export PATH="$conda_base_dir/bin:$PATH"
+            
+            # 方法2: 使用conda.sh
+            if [ -f "$conda_base_dir/etc/profile.d/conda.sh" ]; then
+                . "$conda_base_dir/etc/profile.d/conda.sh"
+                echo -e "${GREEN}✓ 通过conda.sh脚本注册conda${NC}"
+            fi
+            
+            # 方法3: 对于旧版本conda，尝试脚本的其他位置
+            if ! command_exists conda && [ -f "$conda_base_dir/bin/activate" ]; then
+                . "$conda_base_dir/bin/activate"
+                echo -e "${GREEN}✓ 通过activate脚本注册conda${NC}"
+            fi
+            
+            # 检查是否成功注册
+            if ! command_exists conda; then
+                echo -e "${YELLOW}标准方法未能注册conda，尝试替代方案...${NC}"
+                
+                # 方法4: 使用绝对路径别名
+                if [ -x "$conda_base_dir/bin/conda" ]; then
+                    echo -e "${GREEN}✓ 使用绝对路径创建conda别名: $conda_base_dir/bin/conda${NC}"
+                    alias conda="$conda_base_dir/bin/conda"
+                    echo -e "${GREEN}✓ 已创建conda别名${NC}"
+                    
+                    # 导出函数以确保脚本中其他部分可以使用conda
+                    conda() {
+                        "$conda_base_dir/bin/conda" "$@"
+                    }
+                    export -f conda
+                    
+                    # 设置必要的环境变量
+                    export CONDA_PREFIX="$conda_base_dir"
+                    export CONDA_PYTHON_EXE="$conda_base_dir/bin/python"
+                    export CONDA_EXE="$conda_base_dir/bin/conda"
+                    
+                    echo -e "${GREEN}✓ 已设置必要的conda环境变量${NC}"
+                fi
+            fi
+        fi
         
         # 初始化conda
         if command_exists conda; then
@@ -3179,17 +3176,14 @@ main() {
     echo -e "${PURPLE}KTransformers 安装脚本${NC}"
     echo -e "${PURPLE}当前时间: $(date)${NC}\n"
     
-    # 检查并安装必要的工具
-    check_required_tools
+    # 检查并安装所有依赖和工具
+    setup_dependencies || exit 1
     
     # 测试GitHub连通性
     test_github_connectivity
     
     # 检查并设置pip源
     check_and_set_pip_mirror
-    
-    # 检查并安装构建工具
-    check_build_tools
     
     # 检测CUDA版本
     detect_pytorch_cuda_version
@@ -3199,8 +3193,6 @@ main() {
     
     # 执行各个步骤
     check_root || exit 1
-    
-    install_git || exit 1
     
     # 克隆仓库，添加更详细的错误处理
     if ! clone_repo; then
@@ -3255,21 +3247,26 @@ main() {
         
         # 如果当前是root用户，将workspace所有权交给非root用户
         if [ "$(id -u)" -eq 0 ]; then
-            # 查找适合的非root用户
-            local non_root_user=""
-            non_root_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
-            if [ -z "$non_root_user" ]; then
-                non_root_user=$SUDO_USER
+            # 使用配置时选择的安装用户，如果未设置则尝试自动检测
+            local target_user="${INSTALL_USER}"
+            
+            # 如果INSTALL_USER为空或者是root，尝试检测其他非root用户
+            if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
+                # 查找适合的非root用户
+                target_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
+                if [ -z "$target_user" ]; then
+                    target_user=$SUDO_USER
+                fi
             fi
             
-            if [ -n "$non_root_user" ] && [ "$non_root_user" != "root" ]; then
-                echo -e "${YELLOW}将workspace所有权交给用户: $non_root_user${NC}"
+            if [ -n "$target_user" ] && [ "$target_user" != "root" ]; then
+                echo -e "${YELLOW}将workspace所有权交给用户: $target_user${NC}"
                 
                 # 确保workspace存在
                 if [ -d "$INSTALL_DIR" ]; then
-                    chown -R $non_root_user:$(id -gn $non_root_user 2>/dev/null || echo $non_root_user) "$INSTALL_DIR"
+                    chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$INSTALL_DIR"
                     echo -e "${GREEN}✓ 已更改workspace所有权${NC}"
-                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将workspace所有权交给: $non_root_user" >> "$LOG_FILE"
+                    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 已将workspace所有权交给: $target_user" >> "$LOG_FILE"
                 else
                     echo -e "${YELLOW}警告: workspace目录不存在${NC}"
                     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 警告: workspace目录不存在" >> "$LOG_FILE"
@@ -3277,12 +3274,12 @@ main() {
                 
                 # 也更改日志文件的所有权
                 if [ -f "$LOG_FILE" ]; then
-                    chown $non_root_user:$(id -gn $non_root_user 2>/dev/null || echo $non_root_user) "$LOG_FILE"
+                    chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$LOG_FILE"
                 fi
                 
                 # 更改激活脚本的所有权
                 if [ -f "activate_env.sh" ]; then
-                    chown $non_root_user:$(id -gn $non_root_user 2>/dev/null || echo $non_root_user) "activate_env.sh"
+                    chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "activate_env.sh"
                 fi
             else
                 echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
