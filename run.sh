@@ -1275,14 +1275,42 @@ install_conda() {
     local found_conda_path=""
     local home_dir="$HOME"
     
-    # 1. 先检查当前环境中是否有conda命令
-    if command_exists conda; then
-        found_conda=1
-        found_conda_path=$(which conda)
-        echo -e "${GREEN}✓ 当前环境中找到conda: $found_conda_path${NC}"
-    else
-        # 2. 检查用户主目录下常见的conda安装路径
-        echo -e "${YELLOW}当前PATH中未找到conda，检查用户主目录下的conda安装...${NC}"
+    # 直接遍历PATH变量中的目录来检查conda
+    echo -e "${YELLOW}检查当前PATH中的conda...${NC}"
+    
+    IFS=':' read -ra PATH_DIRS <<< "$PATH"
+    for dir in "${PATH_DIRS[@]}"; do
+        if [ -f "$dir/conda" ]; then
+            found_conda=1
+            found_conda_path="$dir/conda"
+            echo -e "${GREEN}✓ 在PATH中找到conda: ${found_conda_path}${NC}"
+            break
+        fi
+    done
+    
+    # 如果PATH中没找到，尝试使用which命令
+    if [ $found_conda -eq 0 ]; then
+        local conda_cmd=$(which conda 2>/dev/null)
+        if [ -n "$conda_cmd" ] && [ -f "$conda_cmd" ]; then
+            found_conda=1
+            found_conda_path="$conda_cmd"
+            echo -e "${GREEN}✓ 通过which命令找到conda: ${found_conda_path}${NC}"
+        fi
+    fi
+    
+    # 尝试用type命令找到conda
+    if [ $found_conda -eq 0 ]; then
+        local conda_type=$(type -p conda 2>/dev/null)
+        if [ -n "$conda_type" ] && [ -f "$conda_type" ]; then
+            found_conda=1
+            found_conda_path="$conda_type"
+            echo -e "${GREEN}✓ 通过type命令找到conda: ${found_conda_path}${NC}"
+        fi
+    fi
+    
+    # 直接检查常见位置
+    if [ $found_conda -eq 0 ]; then
+        echo -e "${YELLOW}检查用户主目录下的conda安装...${NC}"
         local possible_conda_paths=(
             "$home_dir/miniconda3/bin/conda"
             "$home_dir/anaconda3/bin/conda"
@@ -1290,67 +1318,39 @@ install_conda() {
             "$home_dir/.conda/bin/conda"
             "$home_dir/.miniconda3/bin/conda"
             "$home_dir/.anaconda3/bin/conda"
+
         )
         
         for conda_path in "${possible_conda_paths[@]}"; do
             if [ -f "$conda_path" ]; then
                 found_conda=1
                 found_conda_path=$conda_path
-                echo -e "${GREEN}✓ 在用户主目录找到conda: ${conda_path}${NC}"
+                echo -e "${GREEN}✓ 在标准位置找到conda: ${conda_path}${NC}"
                 break
             fi
         done
+    fi
+    
+    # 检查bashrc中的conda配置
+    if [ $found_conda -eq 0 ] && [ -f "$home_dir/.bashrc" ]; then
+        echo -e "${YELLOW}检查bashrc中的conda配置...${NC}"
         
-        # 3. 检查bashrc中是否已配置conda初始化
-        if [ $found_conda -eq 0 ] && [ -f "$home_dir/.bashrc" ]; then
-            echo -e "${YELLOW}检查bashrc中的conda配置...${NC}"
-            
-            # 查找bashrc中可能的conda路径
-            local bashrc_conda_path=$(grep -o "conda/bin/conda\|miniconda3/bin/conda\|anaconda3/bin/conda" "$home_dir/.bashrc" | head -n 1)
-            
-            if [ -n "$bashrc_conda_path" ]; then
-                # 尝试从bashrc中提取完整路径
-                local potential_path=$(grep -o "/[^ ]*$bashrc_conda_path" "$home_dir/.bashrc" | head -n 1)
-                
-                if [ -n "$potential_path" ] && [ -f "$potential_path" ]; then
-                    found_conda=1
-                    found_conda_path=$potential_path
-                    echo -e "${GREEN}✓ 在bashrc配置中找到conda: ${potential_path}${NC}"
-                else
-                    # 使用正则表达式匹配路径
-                    local path_pattern="PATH=.*(/[^:]*conda[^:]*bin)"
-                    if grep -q "$path_pattern" "$home_dir/.bashrc"; then
-                        local conda_dir=$(grep -o "$path_pattern" "$home_dir/.bashrc" | sed -E "s/PATH=.*\(\/[^:]*conda[^:]*bin\).*/\1/")
-                        
-                        if [ -d "$conda_dir" ] && [ -f "$conda_dir/conda" ]; then
-                            found_conda=1
-                            found_conda_path="$conda_dir/conda"
-                            echo -e "${GREEN}✓ 在bashrc PATH配置中找到conda: ${found_conda_path}${NC}"
-                        fi
-                    fi
-                fi
-            fi
-            
-            # 如果仍未找到，尝试通过conda init块找到
-            if [ $found_conda -eq 0 ] && grep -q "conda initialize" "$home_dir/.bashrc"; then
-                echo -e "${YELLOW}检测到bashrc中有conda初始化代码，尝试加载...${NC}"
-                
-                # 尝试通过加载bashrc来激活conda（仅用于检测）
-                local tmp_shell=$(mktemp)
-                echo "#!/bin/bash" > "$tmp_shell"
-                echo "source \"$home_dir/.bashrc\" > /dev/null 2>&1" >> "$tmp_shell"
-                echo "which conda" >> "$tmp_shell"
-                chmod +x "$tmp_shell"
-                
-                local bashrc_conda=$(bash "$tmp_shell")
-                rm -f "$tmp_shell"
-                
-                if [ -n "$bashrc_conda" ] && [ -f "$bashrc_conda" ]; then
-                    found_conda=1
-                    found_conda_path=$bashrc_conda
-                    echo -e "${GREEN}✓ 通过加载bashrc找到conda: ${found_conda_path}${NC}"
-                fi
-            fi
+        # 直接执行一个子shell尝试加载bashrc并运行conda
+        local test_cmd=$(bash -c "source \"$home_dir/.bashrc\" >/dev/null 2>&1 && which conda" 2>/dev/null)
+        if [ -n "$test_cmd" ] && [ -f "$test_cmd" ]; then
+            found_conda=1
+            found_conda_path="$test_cmd"
+            echo -e "${GREEN}✓ 通过加载bashrc找到conda: ${found_conda_path}${NC}"
+        fi
+    fi
+    
+    # 最后使用command -v的方式再检查一次
+    if [ $found_conda -eq 0 ]; then
+        local command_conda=$(command -v conda 2>/dev/null)
+        if [ -n "$command_conda" ] && [ -f "$command_conda" ]; then
+            found_conda=1
+            found_conda_path="$command_conda"
+            echo -e "${GREEN}✓ 使用command -v找到conda: ${found_conda_path}${NC}"
         fi
     fi
     
@@ -1364,16 +1364,23 @@ install_conda() {
         # 确保当前环境中conda可用
         export PATH="$conda_base_dir/bin:$PATH"
         
-        # 显示conda版本
-        if [ $DEBUG_MODE -eq 1 ]; then
-            conda_version=$(conda --version)
-            echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
+        # 验证conda是否可用
+        if command -v conda >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ conda可在当前环境中使用${NC}"
+            
+            # 显示conda版本
+            if [ $DEBUG_MODE -eq 1 ]; then
+                conda_version=$(conda --version)
+                echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
+            fi
+            return 0
+        else
+            echo -e "${YELLOW}警告: 找到conda但在当前环境中无法使用，将尝试重新安装${NC}"
         fi
-        return 0
     fi
     
-    # 如果PATH中没有conda，直接安装新的
+    # 如果未找到conda或无法使用，则安装新的
     echo -e "${YELLOW}未找到可用的conda，准备安装miniconda...${NC}"
     
     # 确定安装目录
@@ -1457,7 +1464,7 @@ eval "$('"$CONDA_BASE_DIR"'/bin/conda shell.bash hook)"\
     fi
     
     # 验证安装
-    if command_exists conda; then
+    if command -v conda >/dev/null 2>&1; then
         echo -e "${GREEN}✓ conda安装成功且可用${NC}"
         
         # 初始化conda
