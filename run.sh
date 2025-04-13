@@ -1271,8 +1271,34 @@ clone_repo() {
 install_conda() {
     echo -e "${BLUE}[步骤 3] 检测conda${NC}"
     
-    # 记录当前用户信息
+    # 记录当前用户信息和sudo环境
     local current_user=$(whoami)
+    local real_user=$SUDO_USER
+    local real_home=""
+    local using_sudo=0
+    
+    # 检查是否在sudo环境下运行
+    if [ -n "$SUDO_USER" ] && [ "$current_user" = "root" ]; then
+        using_sudo=1
+        real_user=$SUDO_USER
+        real_home=$(eval echo ~$SUDO_USER)
+        echo -e "${YELLOW}检测到以sudo方式运行脚本，原始用户: $real_user${NC}"
+        echo -e "${YELLOW}原始用户主目录: $real_home${NC}"
+        
+        # 获取原始用户的PATH环境变量
+        if [ -f "$real_home/.bashrc" ]; then
+            echo -e "${YELLOW}尝试获取原始用户的环境变量...${NC}"
+            local user_path=$(sudo -u $real_user bash -c 'echo $PATH')
+            if [ -n "$user_path" ]; then
+                echo -e "${GREEN}✓ 获取到原始用户PATH: ${user_path}${NC}"
+                # 将原始用户的PATH添加到当前环境
+                export PATH="$user_path:$PATH"
+            fi
+        fi
+    else
+        real_user=$current_user
+        real_home=$HOME
+    fi
     
     # 检查conda安装
     local found_conda=0
@@ -1282,9 +1308,15 @@ install_conda() {
     echo -e "${YELLOW}当前PATH环境变量: ${NC}"
     echo "$PATH" | tr ':' '\n'
     
-    # 方法1: 使用whereis命令查找conda
+    # 方法1: 尝试以原始用户身份执行whereis命令
     echo -e "${YELLOW}使用whereis命令查找conda...${NC}"
-    local whereis_result=$(whereis conda | awk '{$1=""; print $0}' | xargs)
+    local whereis_result=""
+    if [ $using_sudo -eq 1 ]; then
+        whereis_result=$(sudo -u $real_user bash -c 'whereis conda | awk "{print \$2}"')
+    else
+        whereis_result=$(whereis conda | awk '{$1=""; print $0}' | xargs)
+    fi
+    
     if [ -n "$whereis_result" ]; then
         echo -e "${GREEN}✓ whereis结果: ${whereis_result}${NC}"
         
@@ -1301,45 +1333,36 @@ install_conda() {
         echo -e "${YELLOW}whereis命令未找到conda${NC}"
     fi
     
-    # 方法2: 使用type -a命令
+    # 方法2: 尝试以原始用户身份执行which命令
     if [ $found_conda -eq 0 ]; then
-        echo -e "${YELLOW}使用type -a命令查找conda...${NC}"
-        local type_result=$(type -a conda 2>/dev/null | grep -v "conda is" | grep -o "/.*conda")
-        if [ -n "$type_result" ]; then
-            echo -e "${GREEN}✓ type -a结果: ${type_result}${NC}"
-            found_conda=1
-            found_conda_path=$(echo "$type_result" | head -1)
-            echo -e "${GREEN}✓ 使用type -a找到conda: ${found_conda_path}${NC}"
+        echo -e "${YELLOW}使用which命令查找conda...${NC}"
+        local which_result=""
+        if [ $using_sudo -eq 1 ]; then
+            which_result=$(sudo -u $real_user bash -c 'which conda 2>/dev/null || echo ""')
         else
-            echo -e "${YELLOW}type -a命令未找到conda${NC}"
+            which_result=$(which conda 2>/dev/null || echo "")
         fi
-    fi
-    
-    # 方法3: 直接检查conda命令
-    if [ $found_conda -eq 0 ]; then
-        echo -e "${YELLOW}检查conda命令...${NC}"
-        if which conda &> /dev/null; then
+        
+        if [ -n "$which_result" ] && [ -f "$which_result" ]; then
             found_conda=1
-            found_conda_path=$(which conda)
-            echo -e "${GREEN}✓ 使用which找到conda: $found_conda_path${NC}"
+            found_conda_path="$which_result"
+            echo -e "${GREEN}✓ 使用which找到conda: ${found_conda_path}${NC}"
         else
             echo -e "${YELLOW}which命令未找到conda${NC}"
         fi
     fi
-
-    # 方法4: 检查用户主目录下的miniconda安装
+    
+    # 方法3: 检查原始用户主目录下的miniconda安装
     if [ $found_conda -eq 0 ]; then
-        # 标准用户目录检查
-        local home_dir="$HOME"
-        echo -e "${YELLOW}检查用户目录 ($home_dir) 下的conda安装...${NC}"
+        echo -e "${YELLOW}检查用户 $real_user 目录 ($real_home) 下的conda安装...${NC}"
         
         # 常见的conda安装路径
         local possible_conda_paths=(
-            "$home_dir/miniconda3/bin/conda"
-            "$home_dir/miniconda3/condabin/conda"
-            "$home_dir/anaconda3/bin/conda"
-            "$home_dir/anaconda3/condabin/conda"
-            "$home_dir/conda/bin/conda"
+            "$real_home/miniconda3/bin/conda"
+            "$real_home/miniconda3/condabin/conda"
+            "$real_home/anaconda3/bin/conda"
+            "$real_home/anaconda3/condabin/conda"
+            "$real_home/conda/bin/conda"
         )
         
         for conda_path in "${possible_conda_paths[@]}"; do
@@ -1352,7 +1375,7 @@ install_conda() {
         done
     fi
     
-    # 方法5: 检查系统目录
+    # 方法4: 检查系统目录
     if [ $found_conda -eq 0 ]; then
         echo -e "${YELLOW}检查系统目录中的conda安装...${NC}"
         
@@ -1398,9 +1421,24 @@ install_conda() {
     echo -e "${YELLOW}未找到可用的conda，显示诊断信息...${NC}"
     echo -e "${YELLOW}PATH环境变量:${NC}"
     echo "$PATH" | tr ':' '\n'
-    echo -e "${YELLOW}home目录内容:${NC}"
-    ls -la "$HOME" | grep -i conda
+    
+    if [ $using_sudo -eq 1 ]; then
+        echo -e "${YELLOW}原始用户($real_user)的环境变量:${NC}"
+        sudo -u $real_user bash -c 'echo $PATH' | tr ':' '\n'
+        echo -e "${YELLOW}原始用户($real_user)的home目录内容:${NC}"
+        sudo -u $real_user bash -c "ls -la $real_home | grep -i conda"
+    else
+        echo -e "${YELLOW}home目录内容:${NC}"
+        ls -la "$HOME" | grep -i conda
+    fi
+    
     echo -e "${YELLOW}准备安装miniconda...${NC}"
+    
+    # 如果在sudo下运行，将conda安装到原始用户的主目录
+    if [ $using_sudo -eq 1 ] && [ -n "$real_home" ]; then
+        CONDA_BASE_DIR="$real_home/miniconda3"
+        echo -e "${YELLOW}在sudo模式下，将安装conda到原始用户目录: $CONDA_BASE_DIR${NC}"
+    fi
     
     # 确定安装目录
     echo -e "${YELLOW}将安装conda到指定目录: $CONDA_BASE_DIR${NC}"
@@ -1435,15 +1473,32 @@ install_conda() {
         return 1
     fi
     
+    # 如果是sudo模式，设置正确的权限
+    if [ $using_sudo -eq 1 ] && [ -n "$real_user" ]; then
+        echo -e "${YELLOW}设置conda目录权限给用户: $real_user${NC}"
+        chown -R $real_user:$(id -gn $real_user 2>/dev/null || echo $real_user) $CONDA_BASE_DIR
+    fi
+    
     # 更新当前PATH
     export PATH="$CONDA_BASE_DIR/bin:$PATH"
     
     # 更新.bashrc
     echo -e "${YELLOW}更新.bashrc文件添加conda初始化...${NC}"
     
-    local bashrc="$HOME/.bashrc"
+    local bashrc=""
+    if [ $using_sudo -eq 1 ]; then
+        bashrc="$real_home/.bashrc"
+    else
+        bashrc="$HOME/.bashrc"
+    fi
+    
+    echo -e "${YELLOW}将更新bashrc文件: $bashrc${NC}"
+    
     if [ ! -f "$bashrc" ]; then
         touch "$bashrc"
+        if [ $using_sudo -eq 1 ]; then
+            chown $real_user:$(id -gn $real_user 2>/dev/null || echo $real_user) "$bashrc"
+        fi
     fi
     
     # 准备conda初始化代码块
@@ -1464,7 +1519,12 @@ EOF
     
     # 检查.bashrc是否已包含conda初始化
     if ! grep -q "conda initialize" "$bashrc"; then
-        echo "$conda_init_block" >> "$bashrc"
+        if [ $using_sudo -eq 1 ]; then
+            # 以原始用户身份写入bashrc
+            echo "$conda_init_block" | sudo -u $real_user tee -a "$bashrc" > /dev/null
+        else
+            echo "$conda_init_block" >> "$bashrc"
+        fi
         echo -e "${GREEN}✓ 已添加conda初始化到.bashrc${NC}"
     else
         echo -e "${YELLOW}.bashrc已包含conda初始化代码，保留现有配置...${NC}"
@@ -1476,12 +1536,16 @@ EOF
         
         # 初始化conda
         echo -e "${YELLOW}初始化conda...${NC}"
-        "$CONDA_BASE_DIR/bin/conda" init bash
+        if [ $using_sudo -eq 1 ]; then
+            sudo -u $real_user "$CONDA_BASE_DIR/bin/conda" init bash
+        else
+            "$CONDA_BASE_DIR/bin/conda" init bash
+        fi
         
         if [ $DEBUG_MODE -eq 1 ]; then
             conda_version=$("$CONDA_BASE_DIR/bin/conda" --version)
             echo -e "${CYAN}[调试] conda版本: ${conda_version}${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $(which conda), 版本: ${conda_version}" >> "$LOG_FILE"
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] conda已安装: $CONDA_BASE_DIR/bin/conda, 版本: ${conda_version}" >> "$LOG_FILE"
         fi
         return 0
     else
