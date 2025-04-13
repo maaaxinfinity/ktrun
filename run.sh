@@ -1299,7 +1299,7 @@ install_conda() {
     # 使用国内或国际镜像
     local miniconda_url=""
     if [ $USE_GHPROXY -eq 1 ]; then
-        miniconda_url="https://mirrors.ustc.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+        miniconda_url="https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-x86_64.sh"
     else
         miniconda_url="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
     fi
