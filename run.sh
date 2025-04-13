@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # 脚本版本信息
-# 最后更新: 2025-03-24
-# 版本: 1.1.1
+# 最后更新: 2025-04-06
+# 版本: 1.1.2
 # 作者: Limitee
 
 # =====================================================
@@ -1058,7 +1058,7 @@ setup_dependencies() {
         fi
     done
     
-    # 3. 更新软件包列表 - 仅做一次
+    # 3. 更新软件包列表
     log "INFO" "更新软件包列表"
     if ! DEBIAN_FRONTEND=noninteractive apt-get update -y; then
         log "ERROR" "更新包管理器失败"
@@ -1760,17 +1760,28 @@ eval "$('"'$source_path'"' '"'shell.bash'"' '"'hook'"')"\
             chmod 755 "$sys_bin_dir"
         fi
         
-        # 创建系统级符号链接
+        # 创建系统级符号链接，但先检查避免循环链接
         local sys_target_path="$sys_bin_dir/conda"
         
-        echo -e "${YELLOW}创建系统级conda符号链接: $source_path -> $sys_target_path${NC}"
-        ln -sf "$source_path" "$sys_target_path"
-        if [ $? -eq 0 ]; then
-            # 确保符号链接有正确的权限
-            chmod 755 "$sys_target_path"
-            echo -e "${GREEN}✓ 已创建系统级符号链接: conda${NC}"
+        # 检查是否已有符号链接，如果有，先移除
+        if [ -L "$sys_target_path" ]; then
+            echo -e "${YELLOW}移除已存在的符号链接: $sys_target_path${NC}"
+            rm -f "$sys_target_path"
+        fi
+        
+        # 检查源路径和目标路径是否相同，避免创建循环链接
+        if [ "$source_path" = "$sys_target_path" ]; then
+            echo -e "${RED}警告: 源路径和目标路径相同，跳过系统符号链接创建${NC}"
         else
-            echo -e "${RED}× 创建系统级符号链接失败: conda${NC}"
+            echo -e "${YELLOW}创建系统级conda符号链接: $source_path -> $sys_target_path${NC}"
+            ln -sf "$source_path" "$sys_target_path"
+            if [ $? -eq 0 ]; then
+                # 确保符号链接有正确的权限
+                chmod 755 "$sys_target_path"
+                echo -e "${GREEN}✓ 已创建系统级符号链接: conda${NC}"
+            else
+                echo -e "${RED}× 创建系统级符号链接失败: conda${NC}"
+            fi
         fi
     fi
     
@@ -3351,73 +3362,125 @@ completion_message() {
 
 # 处理工作区所有权的函数
 handle_workspace_ownership() {
-    # 如果当前是root用户，将workspace所有权交给非root用户
-    if [ "$(id -u)" -eq 0 ]; then
-        # 使用配置时选择的安装用户，如果未设置则尝试自动检测
-        local target_user="${INSTALL_USER}"
+    # 获取安装目录的绝对路径
+    local install_dir_abs=$(readlink -f "$INSTALL_DIR")
+    
+    # 获取当前目录的绝对路径
+    local current_dir_abs=$(pwd)
+    
+    echo -e "${YELLOW}设置目录所有权...${NC}"
+    echo -e "${YELLOW}安装目录: $install_dir_abs${NC}"
+    echo -e "${YELLOW}当前目录: $current_dir_abs${NC}"
+    
+    # 确定需要处理的目录
+    local target_dirs=()
+    
+    # 如果安装目录存在且与当前目录不同，则加入处理列表
+    if [ -d "$install_dir_abs" ] && [ "$install_dir_abs" != "$current_dir_abs" ]; then
+        target_dirs+=("$install_dir_abs")
+    fi
+    
+    # 当前目录总是要处理的
+    target_dirs+=("$current_dir_abs")
+    
+    # 确定目标用户和组
+    # 优先使用INSTALL_USER，其次是SUDO_USER，再次是当前用户
+    local target_user=""
+    local target_group=""
+    
+    if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+        target_user="$INSTALL_USER"
+    elif [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+        target_user="$SUDO_USER"
+    else
+        # 尝试找到非root的当前登录用户
+        target_user=$(who | grep -v "root" | head -n 1 | awk '{print $1}')
+    fi
+    
+    # 如果仍然没有找到非root用户，使用当前用户
+    if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
+        target_user=$(whoami)
+    fi
+    
+    # 获取用户的主组
+    target_group=$(id -gn "$target_user" 2>/dev/null || echo "$target_user")
+    
+    echo -e "${YELLOW}将使用目标用户和组: $target_user:$target_group${NC}"
+    
+    # 确定是否需要使用sudo（如果当前不是root用户）
+    local use_sudo=0
+    if [ "$(id -u)" -ne 0 ]; then
+        use_sudo=1
+        echo -e "${YELLOW}当前用户不是root，将使用sudo进行操作${NC}"
+    fi
+    
+    # 处理每个目标目录
+    for dir in "${target_dirs[@]}"; do
+        echo -e "${YELLOW}处理目录: $dir${NC}"
         
-        # 如果INSTALL_USER为空或者是root，尝试检测其他非root用户
-        if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
-            # 查找适合的非root用户
-            target_user=$(who | awk '{print $1}' | grep -v "root" | head -n 1)
-            if [ -z "$target_user" ]; then
-                target_user=$SUDO_USER
+        # 处理目录本身及其内容
+        if [ $use_sudo -eq 1 ]; then
+            echo -e "${YELLOW}使用sudo设置所有权...${NC}"
+            # 使用sudo设置所有权
+            if ! sudo chown -R "$target_user:$target_group" "$dir"; then
+                echo -e "${RED}× 所有权设置失败，尝试只处理关键目录和文件${NC}"
+                
+                # 处理workspace目录
+                if [ -d "$dir/workspace" ]; then
+                    echo -e "${YELLOW}单独处理workspace目录...${NC}"
+                    sudo chown -R "$target_user:$target_group" "$dir/workspace"
+                    sudo chmod -R 755 "$dir/workspace"
+                fi
+                
+                # 处理日志文件
+                sudo find "$dir" -maxdepth 1 -name "ktransformers_install_*.log" -exec sudo chown "$target_user:$target_group" {} \;
+                
+                # 处理激活脚本
+                if [ -f "$dir/activate_env.sh" ]; then
+                    sudo chown "$target_user:$target_group" "$dir/activate_env.sh"
+                    sudo chmod 755 "$dir/activate_env.sh"
+                fi
+            else
+                echo -e "${GREEN}✓ 成功设置目录所有权: $dir${NC}"
+            fi
+        else
+            # 以root身份直接设置所有权
+            echo -e "${YELLOW}直接设置所有权...${NC}"
+            if ! chown -R "$target_user:$target_group" "$dir"; then
+                echo -e "${RED}× 所有权设置失败，尝试只处理关键目录和文件${NC}"
+                
+                # 处理workspace目录
+                if [ -d "$dir/workspace" ]; then
+                    echo -e "${YELLOW}单独处理workspace目录...${NC}"
+                    chown -R "$target_user:$target_group" "$dir/workspace"
+                    chmod -R 755 "$dir/workspace"
+                fi
+                
+                # 处理日志文件
+                find "$dir" -maxdepth 1 -name "ktransformers_install_*.log" -exec chown "$target_user:$target_group" {} \;
+                
+                # 处理激活脚本
+                if [ -f "$dir/activate_env.sh" ]; then
+                    chown "$target_user:$target_group" "$dir/activate_env.sh"
+                    chmod 755 "$dir/activate_env.sh"
+                fi
+            else
+                echo -e "${GREEN}✓ 成功设置目录所有权: $dir${NC}"
             fi
         fi
-        
-        if [ -n "$target_user" ] && [ "$target_user" != "root" ]; then
-            echo -e "${YELLOW}将当前目录workspace所有权交给用户: $target_user${NC}"
-            
-            # 获取当前目录
-            local current_dir=$(pwd)
-            
-            # 获取目标用户的组
-            local target_group=$(id -gn $target_user 2>/dev/null || echo $target_user)
-            
-            echo -e "${YELLOW}开始设置所有权: $target_user:$target_group${NC}"
-            
-            # 修改当前目录及所有内容的所有权
-            echo -e "${YELLOW}递归修改当前目录及所有内容的所有权...${NC}"
-            
-            # 首先处理日志文件（按照命名模式）
-            echo -e "${YELLOW}处理日志文件...${NC}"
-            find "$current_dir" -maxdepth 1 -name "ktransformers_install_*.log" -exec chown $target_user:$target_group {} \;
-            
-            # 处理workspace目录
-            if [ -d "$current_dir/workspace" ]; then
-                echo -e "${YELLOW}处理workspace目录...${NC}"
-                chown -R $target_user:$target_group "$current_dir/workspace"
-                chmod -R 755 "$current_dir/workspace"
-                echo -e "${GREEN}✓ 已设置workspace目录所有权和权限${NC}"
-            fi
-            
-            # 处理.git目录（如果存在）
-            if [ -d "$current_dir/.git" ]; then
-                echo -e "${YELLOW}处理.git目录...${NC}"
-                chown -R $target_user:$target_group "$current_dir/.git"
-                echo -e "${GREEN}✓ 已设置.git目录所有权${NC}"
-            fi
-            
-            # 处理所有普通文件
-            echo -e "${YELLOW}处理所有普通文件...${NC}"
-            find "$current_dir" -maxdepth 1 -type f -exec chown $target_user:$target_group {} \;
-            
-            # 处理激活脚本
-            if [ -f "$current_dir/activate_env.sh" ]; then
-                chown $target_user:$target_group "$current_dir/activate_env.sh"
-                chmod 755 "$current_dir/activate_env.sh"
-                echo -e "${GREEN}✓ 已设置激活脚本权限${NC}"
-            fi
-            
-            # 确保当前目录本身也是正确的所有权
-            chown $target_user:$target_group "$current_dir"
-            
-            echo -e "${GREEN}✓ 已完成目录所有权设置${NC}"
+    done
+    
+    # 确保日志文件有正确的所有权
+    if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
+        echo -e "${YELLOW}设置日志文件所有权: $LOG_FILE${NC}"
+        if [ $use_sudo -eq 1 ]; then
+            sudo chown "$target_user:$target_group" "$LOG_FILE"
         else
-            echo -e "${YELLOW}未找到适合的非root用户，workspace保持当前所有权${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 未找到适合的非root用户，workspace保持当前所有权" >> "$LOG_FILE"
+            chown "$target_user:$target_group" "$LOG_FILE"
         fi
     fi
+    
+    echo -e "${GREEN}✓ 目录所有权设置完成${NC}"
 }
 
 # 主函数
@@ -3456,10 +3519,10 @@ main() {
     # 用于跟踪安装状态的变量
     local install_status=0
     
-    # 执行各个步骤
+    # 检查是否以root用户运行
     check_root || exit 1
     
-    # 克隆仓库，添加更详细的错误处理
+    # 克隆仓库
     if ! clone_repo; then
         echo -e "${RED}× 仓库克隆失败，请检查网络连接和目录权限${NC}"
         echo -e "${YELLOW}您可以尝试手动克隆仓库:${NC}"
@@ -3485,8 +3548,10 @@ main() {
     # 初始化git子模块
     init_git_submodules || install_status=1
     
-    # 添加缺失的步骤
+    # 安装libnuma  
     install_libnuma || install_status=1
+
+    # 设置使用numa
     set_use_numa || install_status=1
     
     # 编译和构建所需库
