@@ -1275,6 +1275,8 @@ install_conda() {
     local using_sudo=0
     local real_home=""
     local real_user=""
+    local found_conda=0
+    local found_conda_path=""
     
     # 处理sudo环境下的PATH保留问题
     if [ "$(id -u)" -eq 0 ]; then
@@ -1304,6 +1306,13 @@ install_conda() {
                 if [ -d "$conda_path" ]; then
                     export PATH="$conda_path:$PATH"
                     echo -e "${GREEN}✓ 已添加conda路径: $conda_path${NC}"
+                    
+                    # 直接检查conda可执行文件
+                    if [ -f "$conda_path/conda" ] && [ -x "$conda_path/conda" ]; then
+                        found_conda=1
+                        found_conda_path="$conda_path/conda"
+                        echo -e "${GREEN}✓ 在路径中直接找到conda: $found_conda_path${NC}"
+                    fi
                 fi
             done
         fi
@@ -1312,60 +1321,13 @@ install_conda() {
         real_user="$(whoami)"
     fi
     
-    # 检查conda安装
-    local found_conda=0
-    local found_conda_path=""
-    
     # 诊断信息
     echo -e "${YELLOW}当前PATH环境变量: ${NC}"
     echo "$PATH" | tr ':' '\n'
     
-    # 方法1: 尝试以原始用户身份执行whereis命令
-    echo -e "${YELLOW}使用whereis命令查找conda...${NC}"
-    local whereis_result=""
-    if [ $using_sudo -eq 1 ]; then
-        whereis_result=$(sudo -u $real_user bash -c 'whereis conda | awk "{print \$2}"')
-    else
-        whereis_result=$(whereis conda | awk '{$1=""; print $0}' | xargs)
-    fi
-    
-    if [ -n "$whereis_result" ]; then
-        echo -e "${GREEN}✓ whereis结果: ${whereis_result}${NC}"
-        
-        # 从whereis结果中提取路径
-        for conda_path in $whereis_result; do
-            if [ -f "$conda_path" ] && [ -x "$conda_path" ]; then
-                found_conda=1
-                found_conda_path="$conda_path"
-                echo -e "${GREEN}✓ 使用whereis找到conda: ${found_conda_path}${NC}"
-                break
-            fi
-        done
-    else
-        echo -e "${YELLOW}whereis命令未找到conda${NC}"
-    fi
-    
-    # 方法2: 尝试以原始用户身份执行which命令
+    # 如果已经直接在路径中找到conda，跳过其他查找方法
     if [ $found_conda -eq 0 ]; then
-        echo -e "${YELLOW}使用which命令查找conda...${NC}"
-        local which_result=""
-        if [ $using_sudo -eq 1 ]; then
-            which_result=$(sudo -u $real_user bash -c 'which conda 2>/dev/null || echo ""')
-        else
-            which_result=$(which conda 2>/dev/null || echo "")
-        fi
-        
-        if [ -n "$which_result" ] && [ -f "$which_result" ]; then
-            found_conda=1
-            found_conda_path="$which_result"
-            echo -e "${GREEN}✓ 使用which找到conda: ${found_conda_path}${NC}"
-        else
-            echo -e "${YELLOW}which命令未找到conda${NC}"
-        fi
-    fi
-    
-    # 方法3: 检查原始用户主目录下的miniconda安装
-    if [ $found_conda -eq 0 ]; then
+        # 方法1: 尝试使用绝对路径查找conda
         echo -e "${YELLOW}检查用户 $real_user 目录 ($real_home) 下的conda安装...${NC}"
         
         # 常见的conda安装路径
@@ -1378,13 +1340,51 @@ install_conda() {
         )
         
         for conda_path in "${possible_conda_paths[@]}"; do
-            if [ -f "$conda_path" ]; then
+            if [ -f "$conda_path" ] && [ -x "$conda_path" ]; then
                 found_conda=1
                 found_conda_path=$conda_path
                 echo -e "${GREEN}✓ 在用户目录找到conda: ${conda_path}${NC}"
                 break
             fi
         done
+    fi
+    
+    # 方法2: 尝试以原始用户身份执行whereis命令
+    if [ $found_conda -eq 0 ]; then
+        echo -e "${YELLOW}使用whereis命令查找conda...${NC}"
+        local whereis_result=""
+        if [ $using_sudo -eq 1 ]; then
+            whereis_result=$(sudo -u $real_user bash -c "PATH=\"$PATH\" whereis conda | awk '{print \$2}'")
+        else
+            whereis_result=$(whereis conda | awk '{print $2}')
+        fi
+        
+        if [ -n "$whereis_result" ] && [ -f "$whereis_result" ]; then
+            found_conda=1
+            found_conda_path="$whereis_result"
+            echo -e "${GREEN}✓ 使用whereis找到conda: ${found_conda_path}${NC}"
+        else
+            echo -e "${YELLOW}whereis命令未找到conda${NC}"
+        fi
+    fi
+    
+    # 方法3: 尝试以原始用户身份执行which命令
+    if [ $found_conda -eq 0 ]; then
+        echo -e "${YELLOW}使用which命令查找conda...${NC}"
+        local which_result=""
+        if [ $using_sudo -eq 1 ]; then
+            which_result=$(sudo -u $real_user bash -c "PATH=\"$PATH\" which conda 2>/dev/null || echo \"\"")
+        else
+            which_result=$(which conda 2>/dev/null || echo "")
+        fi
+        
+        if [ -n "$which_result" ] && [ -f "$which_result" ]; then
+            found_conda=1
+            found_conda_path="$which_result"
+            echo -e "${GREEN}✓ 使用which找到conda: ${found_conda_path}${NC}"
+        else
+            echo -e "${YELLOW}which命令未找到conda${NC}"
+        fi
     fi
     
     # 方法4: 检查系统目录
@@ -1414,7 +1414,7 @@ install_conda() {
         local command_result=""
         
         if [ $using_sudo -eq 1 ]; then
-            command_result=$(sudo -u $real_user bash -c 'command -v conda 2>/dev/null || echo ""')
+            command_result=$(sudo -u $real_user bash -c "PATH=\"$PATH\" command -v conda 2>/dev/null || echo \"\"")
         else
             command_result=$(command -v conda 2>/dev/null || echo "")
         fi
@@ -1447,11 +1447,11 @@ install_conda() {
             if [ ! -d "${ENV_INSTALL_DIR}" ]; then
                 mkdir -p "${ENV_INSTALL_DIR}"
                 echo -e "${GREEN}✓ 创建环境目录: ${ENV_INSTALL_DIR}${NC}"
-                
-                # 配置conda环境目录
-                "$found_conda_path" config --add envs_dirs "${ENV_INSTALL_DIR}"
-                echo -e "${GREEN}✓ 配置conda环境目录: ${ENV_INSTALL_DIR}${NC}"
             fi
+            
+            # 配置conda环境目录
+            "$found_conda_path" config --add envs_dirs "${ENV_INSTALL_DIR}"
+            echo -e "${GREEN}✓ 配置conda环境目录: ${ENV_INSTALL_DIR}${NC}"
             
             # 返回成功
             return 0
