@@ -794,11 +794,6 @@ setup_log_file() {
     fi
     
     export LOG_FILE
-
-    # 创建自定义文件描述符（例如 fd 3）用于终端输出
-    exec 3>&1
-    # 将 stdout 和 stderr 追加到 LOG_FILE，同时复制到 fd 3（终端）
-    exec >> "$LOG_FILE" 2>&1 1>&3
 }
 
 # 函数：收集系统信息
