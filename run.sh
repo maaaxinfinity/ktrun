@@ -2026,12 +2026,12 @@ make_dev_install() {
         return 1
     fi
     
-                    log "ERROR" "无法进入目录 $INSTALL_DIR" >> "$LOG_FILE"
+    if ! cd "$INSTALL_DIR"; then
+        log "ERROR" "无法进入目录 $INSTALL_DIR" >> "$LOG_FILE"
         echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}" >> "$LOG_FILE"
-                }
+        return 1
+    fi
                 
-                # 保存当前位置，确保日志路径仍然正确
-
     if ! command_exists make; then
         echo -e "${RED}× make命令不存在，尝试安装...${NC}" >> "$LOG_FILE"
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
@@ -2093,7 +2093,7 @@ make_dev_install() {
             echo -e "${YELLOW}1. 安装build-essential${NC}" >> "$LOG_FILE"
             echo -e "${YELLOW}2. 进入 $INSTALL_DIR 目录${NC}" >> "$LOG_FILE"
             echo -e "${YELLOW}3. 执行 make dev_install 或 pip install -e .${NC}" >> "$LOG_FILE"
-                fi
+        fi
                 
     fi
 }
