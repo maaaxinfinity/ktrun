@@ -3230,14 +3230,8 @@ completion_message() {
 # 处理工作区所有权的函数
 handle_workspace_ownership() {
     local install_dir_abs=$(readlink -f "$INSTALL_DIR")
-    local current_dir_abs=$(pwd)
-
-    echo -e "${YELLOW}设置目录所有权...${NC}"
-    echo $(pwd)
-    echo $(readlink -f "$INSTALL_DIR")
-    echo $(readlink -f "$current_dir_abs")
-    echo $(readlink -f "$install_dir_abs")
-
+    local current_dir_abs=$(readlink -f "$SCRIPT_DIR")
+    
     # 确定目标用户和组
     local target_user=""
     local target_group=""
