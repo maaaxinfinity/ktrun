@@ -1092,11 +1092,9 @@ clone_repo() {
 
     INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
     
-    # 确保安装目录存在
         log "WARN" "目录 $INSTALL_DIR 已存在"
         echo -e "${YELLOW}[INFO] 目录已存在: $INSTALL_DIR${NC}"
         
-        # 检查目录是否为空
         if [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
             echo -e "${YELLOW}[WARN] 安装目录不为空${NC}"
             
@@ -1111,15 +1109,17 @@ clone_repo() {
             echo -e "${YELLOW}[INFO] 继续安装${NC}"
             return 0
         fi
-    else
-        echo -e "${YELLOW}[INFO] 创建目录: $INSTALL_DIR${NC}"
-        mkdir -p "$INSTALL_DIR" || {
-            echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
-            else
-        }
-    fi
-    
-    # 根据用户选择设置不同的代理URL
+
+        if [ ! -d "$INSTALL_DIR" ]; then
+            echo -e "${YELLOW}[INFO] 创建目录: $INSTALL_DIR${NC}"
+            mkdir -p "$INSTALL_DIR" || {
+                echo -e "${RED}× 无法创建目录: $INSTALL_DIR${NC}"
+                return 1
+            }
+        else
+            echo -e "${YELLOW}[INFO] 目录已存在: $INSTALL_DIR${NC}"
+        fi
+
     local repo_url="https://github.com/kvcache-ai/ktransformers.git"
     local clone_url="$repo_url"
     
