@@ -1437,21 +1437,16 @@ install_conda() {
         # 确保当前环境中conda可用
         export PATH="$conda_base_dir/bin:$PATH"
         
+        # 使用conda默认的环境目录
+        echo -e "${YELLOW}使用conda默认的环境目录...${NC}"
+        # 清除自定义的环境目录设置
+        ENV_INSTALL_DIR=""
+        
         # 验证conda是否可用
         if "$found_conda_path" --version &> /dev/null; then
             echo -e "${GREEN}✓ conda命令可执行${NC}"
             conda_version=$("$found_conda_path" --version)
             echo -e "${GREEN}✓ conda版本: $conda_version${NC}"
-            
-            # 如果当前目录中不存在conda环境目录，创建并配置它
-            if [ ! -d "${ENV_INSTALL_DIR}" ]; then
-                mkdir -p "${ENV_INSTALL_DIR}"
-                echo -e "${GREEN}✓ 创建环境目录: ${ENV_INSTALL_DIR}${NC}"
-            fi
-            
-            # 配置conda环境目录
-            "$found_conda_path" config --add envs_dirs "${ENV_INSTALL_DIR}"
-            echo -e "${GREEN}✓ 配置conda环境目录: ${ENV_INSTALL_DIR}${NC}"
             
             # 返回成功
             return 0
@@ -1553,9 +1548,6 @@ install_conda() {
 # !! 由KTransformers安装脚本添加 !!
 export PATH="$CONDA_BASE_DIR/bin:\$PATH"
 
-# 设置环境目录
-export CONDA_ENVS_PATH="${ENV_INSTALL_DIR}"
-
 # conda初始化
 eval "\$($CONDA_BASE_DIR/bin/conda shell.bash hook)"
 # <<< conda initialize <<<
@@ -1574,18 +1566,6 @@ EOF
     else
         echo -e "${YELLOW}.bashrc已包含conda初始化代码，保留现有配置...${NC}"
     fi
-    
-    # 创建环境安装目录
-    mkdir -p "${ENV_INSTALL_DIR}"
-    
-    # 如果在sudo模式下，设置环境目录权限
-    if [ $using_sudo -eq 1 ] && [ -n "$real_user" ]; then
-        echo -e "${YELLOW}设置环境目录权限给用户: $real_user${NC}"
-        chown -R $real_user:$(id -gn $real_user 2>/dev/null || echo $real_user) "${ENV_INSTALL_DIR}"
-    fi
-    
-    # 配置conda环境目录
-    "$CONDA_BASE_DIR/bin/conda" config --add envs_dirs "${ENV_INSTALL_DIR}"
     
     # 验证安装
     if "$CONDA_BASE_DIR/bin/conda" --version &> /dev/null; then
