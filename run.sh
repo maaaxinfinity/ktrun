@@ -1068,11 +1068,9 @@ setup_dependencies() {
     if [ ${#missing_tools[@]} -gt 0 ]; then
         log "INFO" "正在安装缺少的工具: ${missing_tools[*]}"
         
-        # 安装构建基础包
         log "INFO" "安装构建基础包"
         DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake software-properties-common
         
-        # 逐个安装缺少的工具
         for tool in "${missing_tools[@]}"; do
             log "INFO" "安装: $tool"
             
@@ -1093,13 +1091,10 @@ setup_dependencies() {
                     DEBIAN_FRONTEND=noninteractive apt-get install -y coreutils
                     ;;
                 "make"|"gcc"|"g++")
-                    # 已在build-essential包中
                     ;;
                 "cmake")
-                    # 已单独安装
                     ;;
                 "add-apt-repository")
-                    # 已在software-properties-common包中
                     ;;
                 *)
                     DEBIAN_FRONTEND=noninteractive apt-get install -y "$tool"
@@ -1120,34 +1115,7 @@ setup_dependencies() {
     else
         log "SUCCESS" "所有基本工具已安装"
     fi
-    
-    # 5. 安装额外系统依赖
-    log "INFO" "安装额外系统依赖"
-    
-    # 开发相关依赖
-    log "INFO" "安装开发相关依赖"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        python3-dev \
-        ninja-build \
-        pkg-config \
-        libcurl4-openssl-dev \
-        libopenblas-dev \
-        libomp-dev
-    
-    # 网络相关依赖
-    log "INFO" "安装网络相关依赖"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        curl \
-        ca-certificates
-    
-    # 系统工具依赖
-    log "INFO" "安装系统工具依赖"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        lsb-release \
-        gnupg \
-        apt-transport-https
-    
-    log "SUCCESS" "所有依赖和工具设置完成"
+
     return 0
 }
 
@@ -1177,7 +1145,7 @@ test_github_connectivity() {
 clone_repo() {
     echo -e "${BLUE}[步骤 2] 克隆代码仓库${NC}"
     
-    # 确保INSTALL_DIR是纯路径，去除任何多余字符
+    
     INSTALL_DIR=$(echo "$INSTALL_DIR" | tr -d '\r')
     
     # 确保安装目录存在
@@ -1319,8 +1287,8 @@ install_conda() {
         if "$conda_executable" --version &> /dev/null; then
             local conda_version=$("$conda_executable" --version)
             log "SUCCESS" "✓ conda命令可执行，版本: $conda_version"
-            # 配置conda使用系统默认的环境路径
-            log "INFO" "确保conda使用默认环境路径"
+            # 确保环境正确配置
+            conda config --set auto_activate_base false
             return 0
         else
             log "WARN" "找到conda但无法执行 ($conda_executable --version 失败)，将尝试重新安装"
@@ -1341,6 +1309,7 @@ install_conda() {
          if "$CONDA_BASE_DIR/bin/conda" --version &> /dev/null; then
              local conda_version=$("$CONDA_BASE_DIR/bin/conda" --version)
              log "SUCCESS" "✓ $CONDA_BASE_DIR 中的conda可用，版本: $conda_version"
+             conda config --set auto_activate_base false
              return 0
          else
              log "WARN" "$CONDA_BASE_DIR 中的conda无法执行，将继续安装..."
@@ -1413,6 +1382,10 @@ install_conda() {
         conda config --set auto_activate_base false
 
         log "SUCCESS" "conda安装和初始化完成"
+        
+        # 不再创建多余的符号链接
+        # 移除调用 update_all_users_path 或 create_conda_symlinks
+        
         return 0
     else
         log "ERROR" "conda安装后验证失败，无法执行 $CONDA_BASE_DIR/bin/conda"
@@ -1420,269 +1393,266 @@ install_conda() {
     fi
 }
 
-# 配置conda环境目录和路径 - 此函数不再需要，将被移除
-# configure_conda_env() { ... }
-
-# 更新所有用户的PATH以包含conda
-update_all_users_path() {
-    local conda_dir="$1"
-    echo -e "${YELLOW}更新用户PATH以包含conda: $conda_dir${NC}"
+# # 更新所有用户的PATH以包含conda
+# update_all_users_path() {
+#     local conda_dir="$1"
+#     echo -e "${YELLOW}更新用户PATH以包含conda: $conda_dir${NC}"
     
-    # 获取当前用户
-    local current_user=$(whoami)
-    local home_dir
+#     # 获取当前用户
+#     local current_user=$(whoami)
+#     local home_dir
     
-    if [ "$current_user" = "root" ]; then
-        home_dir="/root"
-    else
-        # 检查用户主目录是否为符号链接
-        if [ -L "/home/$current_user" ]; then
-            home_dir=$(readlink -f "/home/$current_user")
-        else
-            home_dir="/home/$current_user"
-        fi
-    fi
+#     if [ "$current_user" = "root" ]; then
+#         home_dir="/root"
+#     else
+#         # 检查用户主目录是否为符号链接
+#         if [ -L "/home/$current_user" ]; then
+#             home_dir=$(readlink -f "/home/$current_user")
+#         else
+#             home_dir="/home/$current_user"
+#         fi
+#     fi
     
-    # 修复系统conda可执行文件的权限
-    if [ -f "/usr/local/bin/conda" ]; then
-        echo -e "${YELLOW}检测到系统conda符号链接，修复权限...${NC}"
-        chmod 755 "/usr/local/bin/conda"
+#     # 修复系统conda可执行文件的权限
+#     if [ -f "/usr/local/bin/conda" ]; then
+#         echo -e "${YELLOW}检测到系统conda符号链接，修复权限...${NC}"
+#         chmod 755 "/usr/local/bin/conda"
         
-        # 查找符号链接指向的实际conda文件
-        local real_conda_path=$(readlink -f "/usr/local/bin/conda")
-        if [ -f "$real_conda_path" ]; then
-            echo -e "${YELLOW}设置实际conda文件的权限: $real_conda_path${NC}"
-            chmod 755 "$real_conda_path"
+#         # 查找符号链接指向的实际conda文件
+#         local real_conda_path=$(readlink -f "/usr/local/bin/conda")
+#         if [ -f "$real_conda_path" ]; then
+#             echo -e "${YELLOW}设置实际conda文件的权限: $real_conda_path${NC}"
+#             chmod 755 "$real_conda_path"
             
-            # 设置conda目录的权限
-            local conda_bin_dir=$(dirname "$real_conda_path")
-            echo -e "${YELLOW}设置conda bin目录的权限: $conda_bin_dir${NC}"
-            chmod 755 "$conda_bin_dir"
+#             # 设置conda目录的权限
+#             local conda_bin_dir=$(dirname "$real_conda_path")
+#             echo -e "${YELLOW}设置conda bin目录的权限: $conda_bin_dir${NC}"
+#             chmod 755 "$conda_bin_dir"
             
-            # 确保conda相关命令都有执行权限
-            echo -e "${YELLOW}确保所有conda相关命令都有执行权限...${NC}"
-            chmod 755 "$conda_bin_dir"/* 2>/dev/null || true
-        fi
-    fi
+#             # 确保conda相关命令都有执行权限
+#             echo -e "${YELLOW}确保所有conda相关命令都有执行权限...${NC}"
+#             chmod 755 "$conda_bin_dir"/* 2>/dev/null || true
+#         fi
+#     fi
     
-    # 创建系统级conda命令符号链接
-    create_conda_symlinks "$conda_dir"
+#     # 创建系统级conda命令符号链接
+#     create_conda_symlinks "$conda_dir"
     
-    echo -e "${YELLOW}更新用户 $current_user 的配置文件${NC}"
+#     echo -e "${YELLOW}更新用户 $current_user 的配置文件${NC}"
     
-    # 确保conda在当前会话可用
-    export PATH="/usr/local/bin:$PATH"
+#     # 确保conda在当前会话可用
+#     export PATH="/usr/local/bin:$PATH"
     
-    # 准备conda初始化代码，优先使用用户主目录下的符号链接
-    local conda_init_block=$(cat << EOF
+#     # 准备conda初始化代码，优先使用用户主目录下的符号链接
+#     local conda_init_block=$(cat << EOF
 
-# >>> conda initialize >>>
-# !! 由KTransformers安装脚本添加 !!
-# 优先使用用户主目录下的符号链接
-if [ -f "\$HOME/bin/conda" ]; then
-    export PATH="\$HOME/bin:\$PATH"
-elif [ -f "/usr/local/bin/conda" ]; then
-    export PATH="/usr/local/bin:\$PATH"
-# 如果上面都没有，尝试使用安装时确定的路径
-elif [ -d "${CONDA_BASE_DIR}/bin" ]; then
-    export PATH="${CONDA_BASE_DIR}/bin:\$PATH"
-fi
+# # >>> conda initialize >>>
+# # !! 由KTransformers安装脚本添加 !!
+# # 优先使用用户主目录下的符号链接
+# if [ -f "\$HOME/bin/conda" ]; then
+#     export PATH="\$HOME/bin:\$PATH"
+# elif [ -f "/usr/local/bin/conda" ]; then
+#     export PATH="/usr/local/bin:\$PATH"
+# # 如果上面都没有，尝试使用安装时确定的路径
+# elif [ -d "${CONDA_BASE_DIR}/bin" ]; then
+#     export PATH="${CONDA_BASE_DIR}/bin:\$PATH"
+# fi
 
-# conda shell hook (由 conda init 管理)
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="\$('${CONDA_BASE_DIR}/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
-if [ \$? -eq 0 ]; then
-    eval "\$__conda_setup"
-else
-    if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then
-        . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"
-    else
-        export PATH="${CONDA_BASE_DIR}/bin:\$PATH"
-    fi
-fi
-unset __conda_setup
+# # conda shell hook (由 conda init 管理)
+# # !! Contents within this block are managed by 'conda init' !!
+# __conda_setup="\$('${CONDA_BASE_DIR}/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+# if [ \$? -eq 0 ]; then
+#     eval "\$__conda_setup"
+# else
+#     if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then
+#         . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"
+#     else
+#         export PATH="${CONDA_BASE_DIR}/bin:\$PATH"
+#     fi
+# fi
+# unset __conda_setup
 
-# <<< conda initialize <<<
-EOF
-)
+# # <<< conda initialize <<<
+# EOF
+# )
     
-    # 更新用户的.bashrc文件
-    local bashrc="$home_dir/.bashrc"
+#     # 更新用户的.bashrc文件
+#     local bashrc="$home_dir/.bashrc"
     
-    # 检查.bashrc是否存在
-    if [ ! -f "$bashrc" ]; then
-        echo -e "${YELLOW}.bashrc不存在，正在创建...${NC}"
-        touch "$bashrc"
-    fi
+#     # 检查.bashrc是否存在
+#     if [ ! -f "$bashrc" ]; then
+#         echo -e "${YELLOW}.bashrc不存在，正在创建...${NC}"
+#         touch "$bashrc"
+#     fi
     
-    # 检查.bashrc是否已包含conda初始化
-    if ! grep -q "conda initialize" "$bashrc"; then
-        echo -e "${GREEN}✓ 添加conda初始化到.bashrc...${NC}"
-        echo "$conda_init_block" >> "$bashrc"
-        echo -e "${GREEN}✓ 已更新.bashrc${NC}"
-    else
-        echo -e "${YELLOW}.bashrc已包含conda初始化块，跳过修改...${NC}"
-        echo -e "${GREEN}注意: 请手动确保conda路径正确配置在.bashrc中${NC}"
-        echo -e "${GREEN}建议的conda路径: ${CONDA_BASE_DIR}/bin${NC}"
-    fi
+#     # 检查.bashrc是否已包含conda初始化
+#     if ! grep -q "conda initialize" "$bashrc"; then
+#         echo -e "${GREEN}✓ 添加conda初始化到.bashrc...${NC}"
+#         echo "$conda_init_block" >> "$bashrc"
+#         echo -e "${GREEN}✓ 已更新.bashrc${NC}"
+#     else
+#         echo -e "${YELLOW}.bashrc已包含conda初始化块，跳过修改...${NC}"
+#         echo -e "${GREEN}注意: 请手动确保conda路径正确配置在.bashrc中${NC}"
+#         echo -e "${GREEN}建议的conda路径: ${CONDA_BASE_DIR}/bin${NC}"
+#     fi
     
-    echo -e "${GREEN}✓ 已完成用户 $current_user 的conda配置${NC}"
-    echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
-}
+#     echo -e "${GREEN}✓ 已完成用户 $current_user 的conda配置${NC}"
+#     echo -e "${YELLOW}提示: 输入 'source ~/.bashrc' 使当前会话立即应用更改${NC}"
+# }
 
-# 创建conda命令符号链接到用户主目录
-create_conda_symlinks() {
-    local conda_dir="$1"
+# # 创建conda命令符号链接到用户主目录
+# create_conda_symlinks() {
+#     local conda_dir="$1"
     
-    # 确定主目录和目标用户
-    local target_user="$USER"
-    local home_dir="$HOME"
+#     # 确定主目录和目标用户
+#     local target_user="$USER"
+#     local home_dir="$HOME"
     
-    # 如果是root用户，且有设置非root的安装用户
-    if [ "$(id -u)" -eq 0 ] && [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
-        target_user="$INSTALL_USER"
-        home_dir="/home/$INSTALL_USER"
+#     # 如果是root用户，且有设置非root的安装用户
+#     if [ "$(id -u)" -eq 0 ] && [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+#         target_user="$INSTALL_USER"
+#         home_dir="/home/$INSTALL_USER"
         
-        # 处理符号链接情况
-        if [ -L "$home_dir" ]; then
-            home_dir=$(readlink -f "$home_dir")
-        fi
+#         # 处理符号链接情况
+#         if [ -L "$home_dir" ]; then
+#             home_dir=$(readlink -f "$home_dir")
+#         fi
         
-        echo -e "${YELLOW}创建conda符号链接到目标用户 ${target_user} 的主目录...${NC}"
-    else
-        echo -e "${YELLOW}创建conda符号链接到当前用户主目录...${NC}"
-    fi
+#         echo -e "${YELLOW}创建conda符号链接到目标用户 ${target_user} 的主目录...${NC}"
+#     else
+#         echo -e "${YELLOW}创建conda符号链接到当前用户主目录...${NC}"
+#     fi
     
-    # 确保用户主目录存在
-    if [ ! -d "$home_dir" ]; then
-        echo -e "${RED}× 错误: 用户主目录 $home_dir 不存在${NC}"
-        return 1
-    fi
+#     # 确保用户主目录存在
+#     if [ ! -d "$home_dir" ]; then
+#         echo -e "${RED}× 错误: 用户主目录 $home_dir 不存在${NC}"
+#         return 1
+#     fi
     
-    # 创建用户bin目录
-    local bin_dir="$home_dir/bin"
-    if [ ! -d "$bin_dir" ]; then
-        echo -e "${YELLOW}创建目录 $bin_dir...${NC}"
-        if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
-            # 以root身份为非root用户创建目录并设置权限
-            mkdir -p "$bin_dir"
-            chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bin_dir"
-            chmod 755 "$bin_dir"
-        else
-            mkdir -p "$bin_dir"
-            chmod 755 "$bin_dir"
-        fi
-    fi
+#     # 创建用户bin目录
+#     local bin_dir="$home_dir/bin"
+#     if [ ! -d "$bin_dir" ]; then
+#         echo -e "${YELLOW}创建目录 $bin_dir...${NC}"
+#         if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+#             # 以root身份为非root用户创建目录并设置权限
+#             mkdir -p "$bin_dir"
+#             chown -R $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bin_dir"
+#             chmod 755 "$bin_dir"
+#         else
+#             mkdir -p "$bin_dir"
+#             chmod 755 "$bin_dir"
+#         fi
+#     fi
     
-    # 创建用户conda符号链接
-    local source_path="$conda_dir/bin/conda"
-    local target_path="$bin_dir/conda"
+#     # 创建用户conda符号链接
+#     local source_path="$conda_dir/bin/conda"
+#     local target_path="$bin_dir/conda"
     
-    if [ -f "$source_path" ]; then
-        # 确保源文件有执行权限
-        chmod 755 "$source_path"
+#     if [ -f "$source_path" ]; then
+#         # 确保源文件有执行权限
+#         chmod 755 "$source_path"
         
-        echo -e "${YELLOW}创建conda符号链接: $source_path -> $target_path${NC}"
-        ln -sf "$source_path" "$target_path"
-        if [ $? -eq 0 ]; then
-            # 设置符号链接权限
-            chmod 755 "$target_path"
+#         echo -e "${YELLOW}创建conda符号链接: $source_path -> $target_path${NC}"
+#         ln -sf "$source_path" "$target_path"
+#         if [ $? -eq 0 ]; then
+#             # 设置符号链接权限
+#             chmod 755 "$target_path"
             
-            # 设置正确的所有权
-            if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
-                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$target_path"
-            fi
+#             # 设置正确的所有权
+#             if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+#                 chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$target_path"
+#             fi
             
-            echo -e "${GREEN}✓ 已创建用户符号链接: conda${NC}"
+#             echo -e "${GREEN}✓ 已创建用户符号链接: conda${NC}"
             
-            # 更新目标用户的bashrc文件
-            local bashrc_path="$home_dir/.bashrc"
+#             # 更新目标用户的bashrc文件
+#             local bashrc_path="$home_dir/.bashrc"
             
-            # 确保bin目录在PATH中
-            if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$bashrc_path" 2>/dev/null; then
-                echo -e "${YELLOW}添加 $bin_dir 到用户 $target_user 的PATH...${NC}"
-                echo 'export PATH="$HOME/bin:$PATH"' >> "$bashrc_path"
+#             # 确保bin目录在PATH中
+#             if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$bashrc_path" 2>/dev/null; then
+#                 echo -e "${YELLOW}添加 $bin_dir 到用户 $target_user 的PATH...${NC}"
+#                 echo 'export PATH="$HOME/bin:$PATH"' >> "$bashrc_path"
                 
-                # 如果是当前用户，也更新当前环境的PATH
-                if [ "$target_user" = "$USER" ]; then
-                    export PATH="$bin_dir:$PATH"
-                fi
+#                 # 如果是当前用户，也更新当前环境的PATH
+#                 if [ "$target_user" = "$USER" ]; then
+#                     export PATH="$bin_dir:$PATH"
+#                 fi
                 
-                # 确保文件所有权正确
-                if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
-                    chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bashrc_path"
-                fi
-            fi
+#                 # 确保文件所有权正确
+#                 if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+#                     chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bashrc_path"
+#                 fi
+#             fi
             
-            # 同步bashrc中的conda初始化
-            echo -e "${YELLOW}同步 $target_user 的.bashrc中的conda初始化...${NC}"
-            if ! grep -q "# >>> conda initialize >>>" "$bashrc_path" 2>/dev/null; then
-                # 如果bashrc中没有conda初始化代码，添加它
-                echo -e "\n# >>> conda initialize >>>" >> "$bashrc_path"
-                echo "# !! 由KTransformers安装脚本添加 (指向 $source_path) !!" >> "$bashrc_path"
-                echo "eval \"\$('$source_path' 'shell.bash' 'hook')\"" >> "$bashrc_path"
-                echo "# <<< conda initialize <<<" >> "$bashrc_path"
-                echo -e "${GREEN}✓ 已添加conda初始化到 $target_user 的.bashrc${NC}"
-            else
-                # 如果已有conda初始化代码，更新hook路径
-                 echo -e "${YELLOW}更新 $target_user 的.bashrc中的conda hook...${NC}"
-                 # 使用更安全的sed替换方式，避免路径中的特殊字符问题
-                 escaped_source_path=$(printf '%s\n' "$source_path" | sed 's:[][\/.^$*]:\\&:g') # Escape special chars
-                 sed -i -e "/# >>> conda initialize >>>/,/# <<< conda initialize <<</{s|eval \"\\\$('.*' 'shell.bash' 'hook')\"|eval \"\\\$('$escaped_source_path' 'shell.bash' 'hook')\"|g}" "$bashrc_path"
-                echo -e "${GREEN}✓ 已更新 $target_user 的.bashrc中的conda hook路径${NC}"
-            fi
+#             # 同步bashrc中的conda初始化
+#             echo -e "${YELLOW}同步 $target_user 的.bashrc中的conda初始化...${NC}"
+#             if ! grep -q "# >>> conda initialize >>>" "$bashrc_path" 2>/dev/null; then
+#                 # 如果bashrc中没有conda初始化代码，添加它
+#                 echo -e "\n# >>> conda initialize >>>" >> "$bashrc_path"
+#                 echo "# !! 由KTransformers安装脚本添加 (指向 $source_path) !!" >> "$bashrc_path"
+#                 echo "eval \"\$('$source_path' 'shell.bash' 'hook')\"" >> "$bashrc_path"
+#                 echo "# <<< conda initialize <<<" >> "$bashrc_path"
+#                 echo -e "${GREEN}✓ 已添加conda初始化到 $target_user 的.bashrc${NC}"
+#             else
+#                 # 如果已有conda初始化代码，更新hook路径
+#                  echo -e "${YELLOW}更新 $target_user 的.bashrc中的conda hook...${NC}"
+#                  # 使用更安全的sed替换方式，避免路径中的特殊字符问题
+#                  escaped_source_path=$(printf '%s\n' "$source_path" | sed 's:[][\/.^$*]:\\&:g') # Escape special chars
+#                  sed -i -e "/# >>> conda initialize >>>/,/# <<< conda initialize <<</{s|eval \"\\\$('.*' 'shell.bash' 'hook')\"|eval \"\\\$('$escaped_source_path' 'shell.bash' 'hook')\"|g}" "$bashrc_path"
+#                 echo -e "${GREEN}✓ 已更新 $target_user 的.bashrc中的conda hook路径${NC}"
+#             fi
 
-            # 确保文件所有权正确
-            if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
-                chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bashrc_path"
-            fi
-        else
-            echo -e "${RED}× 创建符号链接失败: conda${NC}"
-        fi
-    else
-        echo -e "${RED}× 源conda文件不存在: $source_path${NC}"
-    fi
+#             # 确保文件所有权正确
+#             if [ "$(id -u)" -eq 0 ] && [ "$target_user" != "root" ]; then
+#                 chown $target_user:$(id -gn $target_user 2>/dev/null || echo $target_user) "$bashrc_path"
+#             fi
+#         else
+#             echo -e "${RED}× 创建符号链接失败: conda${NC}"
+#         fi
+#     else
+#         echo -e "${RED}× 源conda文件不存在: $source_path${NC}"
+#     fi
     
-    # 创建系统级符号链接（如果以root用户运行）
-    if [ "$(id -u)" -eq 0 ]; then
-        echo -e "${YELLOW}创建系统级conda符号链接...${NC}"
+#     # 创建系统级符号链接（如果以root用户运行）
+#     if [ "$(id -u)" -eq 0 ]; then
+#         echo -e "${YELLOW}创建系统级conda符号链接...${NC}"
         
-        # 确保目标目录存在
-        local sys_bin_dir="/usr/local/bin"
-        if [ ! -d "$sys_bin_dir" ]; then
-            echo -e "${YELLOW}创建系统目录 $sys_bin_dir...${NC}"
-            mkdir -p "$sys_bin_dir"
-            chmod 755 "$sys_bin_dir"
-        fi
+#         # 确保目标目录存在
+#         local sys_bin_dir="/usr/local/bin"
+#         if [ ! -d "$sys_bin_dir" ]; then
+#             echo -e "${YELLOW}创建系统目录 $sys_bin_dir...${NC}"
+#             mkdir -p "$sys_bin_dir"
+#             chmod 755 "$sys_bin_dir"
+#         fi
         
-        # 创建系统级符号链接，但先检查避免循环链接
-        local sys_target_path="$sys_bin_dir/conda"
+#         # 创建系统级符号链接，但先检查避免循环链接
+#         local sys_target_path="$sys_bin_dir/conda"
         
-        # 检查是否已有符号链接，如果有，先移除
-        if [ -L "$sys_target_path" ]; then
-            echo -e "${YELLOW}移除已存在的符号链接: $sys_target_path${NC}"
-            rm -f "$sys_target_path"
-        fi
+#         # 检查是否已有符号链接，如果有，先移除
+#         if [ -L "$sys_target_path" ]; then
+#             echo -e "${YELLOW}移除已存在的符号链接: $sys_target_path${NC}"
+#             rm -f "$sys_target_path"
+#         fi
         
-        # 检查源路径和目标路径是否相同，避免创建循环链接
-        if [ "$source_path" = "$sys_target_path" ]; then
-            echo -e "${RED}警告: 源路径和目标路径相同，跳过系统符号链接创建${NC}"
-        else
-            echo -e "${YELLOW}创建系统级conda符号链接: $source_path -> $sys_target_path${NC}"
-            ln -sf "$source_path" "$sys_target_path"
-            if [ $? -eq 0 ]; then
-                # 确保符号链接有正确的权限
-                chmod 755 "$sys_target_path"
-                echo -e "${GREEN}✓ 已创建系统级符号链接: conda${NC}"
-            else
-                echo -e "${RED}× 创建系统级符号链接失败: conda${NC}"
-            fi
-        fi
-    fi
+#         # 检查源路径和目标路径是否相同，避免创建循环链接
+#         if [ "$source_path" = "$sys_target_path" ]; then
+#             echo -e "${RED}警告: 源路径和目标路径相同，跳过系统符号链接创建${NC}"
+#         else
+#             echo -e "${YELLOW}创建系统级conda符号链接: $source_path -> $sys_target_path${NC}"
+#             ln -sf "$source_path" "$sys_target_path"
+#             if [ $? -eq 0 ]; then
+#                 # 确保符号链接有正确的权限
+#                 chmod 755 "$sys_target_path"
+#                 echo -e "${GREEN}✓ 已创建系统级符号链接: conda${NC}"
+#             else
+#                 echo -e "${RED}× 创建系统级符号链接失败: conda${NC}"
+#             fi
+#         fi
+#     fi
     
-    echo -e "${GREEN}✓ 完成conda命令符号链接创建${NC}"
-    echo -e "${YELLOW}提示: 用户 $target_user 需要输入 'source ~/.bashrc' 使更改立即生效${NC}"
-}
+#     echo -e "${GREEN}✓ 完成conda命令符号链接创建${NC}"
+#     echo -e "${YELLOW}提示: 用户 $target_user 需要输入 'source ~/.bashrc' 使更改立即生效${NC}"
+# }
 
 # 4. 使用conda创建环境
 create_conda_env() {
@@ -3053,17 +3023,17 @@ install_python_deps() {
     
     echo -e "${YELLOW}在 $INSTALL_DIR 中递归查找 requirements.txt 文件...${NC}"
     
-    # 递归查找所有 requirements.txt 文件
-    local req_files=($(find . -name "requirements.txt" -type f))
+    # 递归查找所有 requirements.txt 文件，排除 /third_party 目录
+    local req_files=($(find . -name "requirements.txt" -type f -not -path "*/third_party/*"))
     
     if [ ${#req_files[@]} -gt 0 ]; then
         echo -e "${GREEN}✓ 找到 ${#req_files[@]} 个 requirements.txt 文件${NC}"
         
-        # 按文件路径排序，使安装顺序确定性
+
         IFS=$'\n' req_files=($(sort <<<"${req_files[*]}"))
         unset IFS
         
-        # 输出找到的文件列表
+
         if [ $DEBUG_MODE -eq 1 ]; then
             echo -e "${CYAN}[DEBUG] 找到的 requirements.txt 文件:${NC}"
             for req_file in "${req_files[@]}"; do
@@ -3071,15 +3041,19 @@ install_python_deps() {
             done
         fi
         
-        # 安装每个 requirements.txt 文件中的依赖
+        #忽略 torch 相关依赖
         for req_file in "${req_files[@]}"; do
-            echo -e "${YELLOW}安装依赖: $req_file${NC}"
+            echo -e "${YELLOW}安装依赖: $req_file (忽略torch)${NC}"           
+
+            local temp_req=$(mktemp)
+            grep -v "torch\|pytorch" "$req_file" > "$temp_req"
             
-            # 使用pip安装依赖
-            if pip install -r "$req_file"; then
-                echo -e "${GREEN}✓ $req_file 中的依赖安装成功${NC}"
+            if pip install -r "$temp_req"; then
+                echo -e "${GREEN}✓ $req_file 中的依赖安装成功 (排除torch)${NC}"
+                rm -f "$temp_req"  # 删除临时文件
             else
                 echo -e "${RED}× $req_file 中的依赖安装失败${NC}"
+                rm -f "$temp_req"  # 删除临时文件
                 return 1
             fi
         done
@@ -3089,7 +3063,7 @@ install_python_deps() {
     else
         echo -e "${YELLOW}未找到 requirements.txt 文件，尝试安装基本依赖...${NC}"
         
-        # 安装基本依赖
+        # 安装基本依赖（不包含torch）
         if pip install numpy requests tqdm transformers huggingface_hub; then
             echo -e "${GREEN}✓ 基本 Python 依赖安装成功${NC}"
             return 0
@@ -3174,17 +3148,20 @@ install_ktransformers() {
     log "INFO" "编译过程中可能会显示一些警告，这是正常现象"
     
     local make_output=""
-    local make_error_file="$INSTALL_DIR/make_error.log"
+    local make_log_file="$INSTALL_DIR/make_build.log"
     
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_log_file"
     
     if make_output=$(make dev_install 2>&1); then
         log "SUCCESS" "make dev_install执行成功"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_log_file"
         return 0
     else
         local exit_code=$?
         log "ERROR" "make dev_install执行失败 (错误码: $exit_code)"
+        # 在失败时重命名为错误日志
+        local make_error_file="$INSTALL_DIR/make_build_error.log"
+        mv "$make_log_file" "$make_error_file"
         log "WARN" "编译错误已保存到 $make_error_file"
         
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行失败 (错误码: $exit_code)" >> "$make_error_file"
@@ -3206,6 +3183,7 @@ install_ktransformers() {
         fi
     fi
 }
+
 
 # 完成消息
 completion_message() {
