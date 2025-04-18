@@ -662,7 +662,6 @@ configure_installation() {
     echo -e "\n${BLUE}=== 安装配置摘要 ===${NC}"
     echo -e "${BLUE}● 安装用户: ${GREEN}${INSTALL_USER}${NC}"
     echo -e "${BLUE}● 安装路径: ${GREEN}${INSTALL_DIR}${NC}"
-    echo -e "${BLUE}● Conda基础路径: ${GREEN}${CONDA_BASE_DIR:-将在安装时确定}${NC}" # Show placeholder
     echo -e "${BLUE}● Conda环境名称: ${GREEN}${ENV_NAME}${NC}"
     echo -e "${BLUE}● GPU设备: ${GREEN}${gpu_info}${NC}"
     echo -e "${BLUE}● CUDA版本: ${GREEN}${cuda_info}${NC}"
@@ -796,15 +795,15 @@ setup_log_file() {
     
 
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 日志文件已创建: ${LOG_FILE}${NC}"
-        echo -e "${CYAN}[调试] 将记录详细安装过程${NC}"
+        echo -e "${CYAN}[DEBUG] 日志文件已创建: ${LOG_FILE}${NC}"
+        echo -e "${CYAN}[DEBUG] 将记录详细安装过程${NC}"
     fi
 }
 
 # 函数：收集系统信息
 collect_system_info() {
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 正在收集系统信息...${NC}"
+        echo -e "${CYAN}[DEBUG] 正在收集系统信息...${NC}"
     fi
     
     echo "===== 系统信息 =====" >> "$LOG_FILE"
@@ -832,13 +831,13 @@ collect_system_info() {
     if command -v nvidia-smi &> /dev/null; then
         nvidia-smi >> "$LOG_FILE"
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[调试] 检测到NVIDIA显卡:${NC}"
+            echo -e "${CYAN}[DEBUG] 检测到NVIDIA显卡:${NC}"
             nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
         fi
     else
         echo "未找到NVIDIA显卡或nvidia-smi工具" >> "$LOG_FILE"
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${YELLOW}[调试] 未检测到NVIDIA显卡或nvidia-smi工具${NC}"
+            echo -e "${YELLOW}[DEBUG] 未检测到NVIDIA显卡或nvidia-smi工具${NC}"
         fi
     fi
     echo "" >> "$LOG_FILE"
@@ -892,8 +891,8 @@ retry_command_with_logging() {
     local timeout_duration="${2:-300}"
     
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 命令: $command${NC}"
-        echo -e "${CYAN}[调试] 最大尝试次数: $max_attempts, 超时: ${timeout_duration}秒${NC}"
+        echo -e "${CYAN}[DEBUG] 命令: $command${NC}"
+        echo -e "${CYAN}[DEBUG] 最大尝试次数: $max_attempts, 超时: ${timeout_duration}秒${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] 执行命令: $command (最大尝试次数: $max_attempts, 超时: ${timeout_duration}秒)" >> "$LOG_FILE"
     fi
     
@@ -922,7 +921,7 @@ retry_command_with_logging() {
             if [ $DEBUG_MODE -eq 1 ]; then
                 local end_time=$(date +%s)
                 local duration=$((end_time - start_time))
-                echo -e "${CYAN}[调试] 命令成功执行，耗时: ${duration}秒${NC}"
+                echo -e "${CYAN}[DEBUG] 命令成功执行，耗时: ${duration}秒${NC}"
                 echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令成功执行，耗时: ${duration}秒" >> "$LOG_FILE"
             fi
             return 0
@@ -962,7 +961,7 @@ show_progress_with_logging() {
     local bar_size=40
     
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 启动进度条，持续时间: $duration 秒${NC}"
+        echo -e "${CYAN}[DEBUG] 启动进度条，持续时间: $duration 秒${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] 启动进度条，持续时间: $duration 秒" >> "$LOG_FILE"
     fi
     
@@ -1003,7 +1002,7 @@ show_progress_with_logging() {
     echo -e "${YELLOW}进度: [${NC}$( printf '%-'${bar_size}'s' | tr ' ' '#' )${YELLOW}] 100%${NC}"
     
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 进度条完成${NC}"
+        echo -e "${CYAN}[DEBUG] 进度条完成${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] 进度条完成" >> "$LOG_FILE"
     fi
 }
@@ -1013,7 +1012,7 @@ check_root() {
     echo -e "${BLUE}[步骤 0] 检测是否为超级用户${NC}"
     
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo -e "${CYAN}[调试] 当前用户ID: $(id -u)${NC}"
+        echo -e "${CYAN}[DEBUG] 当前用户ID: $(id -u)${NC}"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] 检查超级用户权限，当前用户ID: $(id -u)" >> "$LOG_FILE"
     fi
     
@@ -1322,8 +1321,6 @@ install_conda() {
             log "SUCCESS" "✓ conda命令可执行，版本: $conda_version"
             # 配置conda使用系统默认的环境路径
             log "INFO" "确保conda使用默认环境路径"
-            conda config --remove-key envs_dirs || true # 移除可能存在的旧配置
-            conda config --set auto_activate_base false # 建议不自动激活base环境
             return 0
         else
             log "WARN" "找到conda但无法执行 ($conda_executable --version 失败)，将尝试重新安装"
@@ -1344,8 +1341,6 @@ install_conda() {
          if "$CONDA_BASE_DIR/bin/conda" --version &> /dev/null; then
              local conda_version=$("$CONDA_BASE_DIR/bin/conda" --version)
              log "SUCCESS" "✓ $CONDA_BASE_DIR 中的conda可用，版本: $conda_version"
-             conda config --remove-key envs_dirs || true
-             conda config --set auto_activate_base false
              return 0
          else
              log "WARN" "$CONDA_BASE_DIR 中的conda无法执行，将继续安装..."
@@ -1696,10 +1691,6 @@ create_conda_env() {
     # 环境将创建在conda的默认环境目录下
 
     echo -e "${GREEN}使用环境名称: $ENV_NAME${NC}"
-    # echo -e "${GREEN}环境将安装在Conda默认路径下${NC}" # 不再需要显示 ENV_INSTALL_DIR
-
-    # 移除旧的环境目录配置 (以防万一)
-    conda config --remove-key envs_dirs || true
 
     # 创建环境
     echo -e "${YELLOW}创建conda环境: ${ENV_NAME}...${NC}"
@@ -1800,7 +1791,7 @@ detect_pytorch_cuda_version() {
         
 
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[调试] GPU详细信息:${NC}"
+            echo -e "${CYAN}[DEBUG] GPU详细信息:${NC}"
             nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader | sed 's/^/  /'
         fi
     else
@@ -1846,9 +1837,9 @@ detect_pytorch_cuda_version() {
             
 
             if [ $DEBUG_MODE -eq 1 ]; then
-                echo -e "${CYAN}[调试] 设置与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}"
-                echo -e "${CYAN}[调试] CUDA路径: ${nvcc_dir}${NC}"
-                echo -e "${CYAN}[调试] 当前PATH: $PATH${NC}"
+                echo -e "${CYAN}[DEBUG] 设置与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}"
+                echo -e "${CYAN}[DEBUG] CUDA路径: ${nvcc_dir}${NC}"
+                echo -e "${CYAN}[DEBUG] 当前PATH: $PATH${NC}"
             fi
         fi
 
@@ -1866,11 +1857,11 @@ detect_pytorch_cuda_version() {
         
 
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[调试] CUDA详细信息:${NC}"
+            echo -e "${CYAN}[DEBUG] CUDA详细信息:${NC}"
             nvcc -V | sed 's/^/  /'
             
 
-            echo -e "${CYAN}[调试] 检查系统中的其他CUDA版本:${NC}"
+            echo -e "${CYAN}[DEBUG] 检查系统中的其他CUDA版本:${NC}"
             
 
             local cuda_dirs=(
@@ -1891,20 +1882,20 @@ detect_pytorch_cuda_version() {
                 if [ -f "${cuda_dir}/bin/nvcc" ] && [ "${cuda_dir}/bin/nvcc" != "$nvcc_path" ]; then
                     local other_version=$("${cuda_dir}/bin/nvcc" -V 2>&1 | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
                     if [ -n "$other_version" ]; then
-                        echo -e "${CYAN}[调试]   发现其他CUDA版本: ${other_version} (${cuda_dir}/bin/nvcc)${NC}"
+                        echo -e "${CYAN}[DEBUG]   发现其他CUDA版本: ${other_version} (${cuda_dir}/bin/nvcc)${NC}"
                         found_other=1
                         
 
                         if [ "$other_version" = "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
-                            echo -e "${CYAN}[调试]   *** 推荐使用此版本，与NVIDIA驱动更兼容 ***${NC}"
-                            echo -e "${CYAN}[调试]   可以通过设置PATH来使用它: export PATH=${cuda_dir}/bin:\$PATH${NC}"
+                            echo -e "${CYAN}[DEBUG]   *** 推荐使用此版本，与NVIDIA驱动更兼容 ***${NC}"
+                            echo -e "${CYAN}[DEBUG]   可以通过设置PATH来使用它: export PATH=${cuda_dir}/bin:\$PATH${NC}"
                         fi
                     fi
                 fi
             done
             
             if [ $found_other -eq 0 ]; then
-                echo -e "${CYAN}[调试]   未发现其他CUDA版本${NC}"
+                echo -e "${CYAN}[DEBUG]   未发现其他CUDA版本${NC}"
             fi
         fi
     else
@@ -1942,9 +1933,9 @@ detect_pytorch_cuda_version() {
                     export PATH="$temp_bin_dir:$PATH"
                     
                     if [ $DEBUG_MODE -eq 1 ]; then
-                        echo -e "${CYAN}[调试] 临时CUDA目录已创建: ${temp_bin_dir}${NC}"
-                        echo -e "${CYAN}[调试] 已将nvcc软链接到: $temp_bin_dir/nvcc${NC}"
-                        echo -e "${CYAN}[调试] 当前PATH: $PATH${NC}"
+                        echo -e "${CYAN}[DEBUG] 临时CUDA目录已创建: ${temp_bin_dir}${NC}"
+                        echo -e "${CYAN}[DEBUG] 已将nvcc软链接到: $temp_bin_dir/nvcc${NC}"
+                        echo -e "${CYAN}[DEBUG] 当前PATH: $PATH${NC}"
                     fi
                 fi
             fi
@@ -1991,8 +1982,8 @@ detect_pytorch_cuda_version() {
     if command_exists nvcc; then
         echo -e "${GREEN}✓ nvcc命令可用${NC}"
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[调试] nvcc路径: $(which nvcc)${NC}"
-            echo -e "${CYAN}[调试] nvcc版本: $(nvcc -V | head -n1)${NC}"
+            echo -e "${CYAN}[DEBUG] nvcc路径: $(which nvcc)${NC}"
+            echo -e "${CYAN}[DEBUG] nvcc版本: $(nvcc -V | head -n1)${NC}"
         fi
     else
 
@@ -2314,8 +2305,7 @@ download_flashinfer() {
         echo -e "${YELLOW}使用CUDA版本格式: ${FORMATTED_CUDA_VERSION}${NC}"
     fi
     
-
-    local flashinfer_url="https://flashinfer.ai/whl/${FORMATTED_CUDA_VERSION}/${FORMATTED_TORCH_VERSION}"
+    local flashinfer_url="https://flashinfer.ai/whl/${FORMATTED_CUDA_VERSION}/${FORMATTED_TORCH_VERSION}/flashinfer-python"
     echo -e "${YELLOW}尝试从 ${flashinfer_url} 安装flashinfer...${NC}"
     
 
@@ -2327,8 +2317,8 @@ download_flashinfer() {
     local wheel_list_file="$temp_dir/wheel_list.html"
     
     if wget -q -O "$wheel_list_file" "$flashinfer_url"; then
-
-        local wheel_file_name=$(grep -o 'flashinfer_python-[0-9.]*-cp[0-9]*-cp[0-9]*-linux_x86_64.whl' "$wheel_list_file" | sort -V | tail -n 1)
+ 
+        local wheel_file_name=$(grep -o 'flashinfer_python-[0-9.]*\+cu[0-9]*torch[0-9.]*-cp[0-9]*-abi3-linux_x86_64.whl' "$wheel_list_file" | sort -V | tail -n 1)
         
         if [ -n "$wheel_file_name" ]; then
             local wheel_url="${flashinfer_url}/${wheel_file_name}"
@@ -2374,7 +2364,6 @@ download_flashinfer() {
         echo -e "${YELLOW}无法获取wheel文件列表${NC}"
     fi
     
-
     echo -e "${YELLOW}尝试使用pip的-f选项安装flashinfer...${NC}"
     if pip install flashinfer-python -f "$flashinfer_url"; then
         echo -e "${GREEN}✓ 通过pip -f选项安装flashinfer成功${NC}"
@@ -3062,47 +3051,54 @@ install_python_deps() {
         return 1
     }
     
-    echo -e "${YELLOW}安装Python依赖...${NC}"
+    echo -e "${YELLOW}在 $INSTALL_DIR 中递归查找 requirements.txt 文件...${NC}"
     
-    # 查找requirements.txt文件
-    if [ -f "requirements.txt" ]; then
-        echo -e "${YELLOW}找到requirements.txt，开始安装依赖...${NC}"
+    # 递归查找所有 requirements.txt 文件
+    local req_files=($(find . -name "requirements.txt" -type f))
+    
+    if [ ${#req_files[@]} -gt 0 ]; then
+        echo -e "${GREEN}✓ 找到 ${#req_files[@]} 个 requirements.txt 文件${NC}"
         
-        # 使用pip安装依赖
-        if pip install -r requirements.txt; then
-            echo -e "${GREEN}✓ Python依赖安装成功${NC}"
-            return 0
-        else
-            echo -e "${RED}× Python依赖安装失败${NC}"
-            return 1
+        # 按文件路径排序，使安装顺序确定性
+        IFS=$'\n' req_files=($(sort <<<"${req_files[*]}"))
+        unset IFS
+        
+        # 输出找到的文件列表
+        if [ $DEBUG_MODE -eq 1 ]; then
+            echo -e "${CYAN}[DEBUG] 找到的 requirements.txt 文件:${NC}"
+            for req_file in "${req_files[@]}"; do
+                echo -e "${CYAN}[DEBUG]   - $req_file${NC}"
+            done
         fi
+        
+        # 安装每个 requirements.txt 文件中的依赖
+        for req_file in "${req_files[@]}"; do
+            echo -e "${YELLOW}安装依赖: $req_file${NC}"
+            
+            # 使用pip安装依赖
+            if pip install -r "$req_file"; then
+                echo -e "${GREEN}✓ $req_file 中的依赖安装成功${NC}"
+            else
+                echo -e "${RED}× $req_file 中的依赖安装失败${NC}"
+                return 1
+            fi
+        done
+        
+        echo -e "${GREEN}✓ 所有 Python 依赖安装成功${NC}"
+        return 0
     else
-        echo -e "${YELLOW}未找到requirements.txt，尝试安装基本依赖...${NC}"
+        echo -e "${YELLOW}未找到 requirements.txt 文件，尝试安装基本依赖...${NC}"
         
         # 安装基本依赖
         if pip install numpy requests tqdm transformers huggingface_hub; then
-            echo -e "${GREEN}✓ 基本Python依赖安装成功${NC}"
+            echo -e "${GREEN}✓ 基本 Python 依赖安装成功${NC}"
             return 0
         else
-            echo -e "${RED}× 基本Python依赖安装失败${NC}"
+            echo -e "${RED}× 基本 Python 依赖安装失败${NC}"
             return 1
         fi
     fi
-}
 
-# 编译和构建所需库
-build_libraries() {
-    log "INFO" "编译和构建所需库"
-    
-    # 检查llama.cpp子模块是否已正确注册
-    if [ -d "third_party/llama.cpp" ] && [ -f "third_party/llama.cpp/CMakeLists.txt" ]; then
-        log "SUCCESS" "llama.cpp子模块已正确注册，跳过构建"
-    else
-        log "ERROR" "llama.cpp子模块未正确注册，请检查子模块初始化"
-        return 1
-    fi
-    
-    # 1. 更新libstdc++6
     log "INFO" "更新libstdc++6"
     
     if ! command_exists add-apt-repository; then
@@ -3125,7 +3121,6 @@ build_libraries() {
         log "WARN" "将继续安装过程，但可能影响某些运行时功能"
     fi
     
-    # 2. 安装libstdcxx-ng
     log "INFO" "安装libstdcxx-ng"
     if retry_command_with_logging "conda install -c conda-forge libstdcxx-ng -y" 300; then
         log "SUCCESS" "libstdcxx-ng安装成功"
@@ -3260,29 +3255,12 @@ completion_message() {
 
 # 处理工作区所有权的函数
 handle_workspace_ownership() {
-    # 获取安装目录的绝对路径
     local install_dir_abs=$(readlink -f "$INSTALL_DIR")
-    
-    # 获取当前目录的绝对路径
     local current_dir_abs=$(pwd)
     
     echo -e "${YELLOW}设置目录所有权...${NC}"
-    echo -e "${YELLOW}安装目录: $install_dir_abs${NC}"
-    echo -e "${YELLOW}当前目录: $current_dir_abs${NC}"
-    
-    # 确定需要处理的目录
-    local target_dirs=()
-    
-    # 如果安装目录存在且与当前目录不同，则加入处理列表
-    if [ -d "$install_dir_abs" ] && [ "$install_dir_abs" != "$current_dir_abs" ]; then
-        target_dirs+=("$install_dir_abs")
-    fi
-    
-    # 当前目录总是要处理的
-    target_dirs+=("$current_dir_abs")
     
     # 确定目标用户和组
-    # 优先使用INSTALL_USER，其次是SUDO_USER，再次是当前用户
     local target_user=""
     local target_group=""
     
@@ -3291,12 +3269,6 @@ handle_workspace_ownership() {
     elif [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
         target_user="$SUDO_USER"
     else
-        # 尝试找到非root的当前登录用户
-        target_user=$(who | grep -v "root" | head -n 1 | awk '{print $1}')
-    fi
-    
-    # 如果仍然没有找到非root用户，使用当前用户
-    if [ -z "$target_user" ] || [ "$target_user" = "root" ]; then
         target_user=$(whoami)
     fi
     
@@ -3305,78 +3277,73 @@ handle_workspace_ownership() {
     
     echo -e "${YELLOW}将使用目标用户和组: $target_user:$target_group${NC}"
     
-    # 确定是否需要使用sudo（如果当前不是root用户）
+    # 检查当前用户权限
     local use_sudo=0
     if [ "$(id -u)" -ne 0 ]; then
         use_sudo=1
-        echo -e "${YELLOW}当前用户不是root，将使用sudo进行操作${NC}"
     fi
     
-    # 处理每个目标目录
-    for dir in "${target_dirs[@]}"; do
-        echo -e "${YELLOW}处理目录: $dir${NC}"
-        
-        # 处理目录本身及其内容
-        if [ $use_sudo -eq 1 ]; then
-            echo -e "${YELLOW}使用sudo设置所有权...${NC}"
-            # 使用sudo设置所有权
-            if ! sudo chown -R "$target_user:$target_group" "$dir"; then
-                echo -e "${RED}× 所有权设置失败，尝试只处理关键目录和文件${NC}"
-                
-                # 处理workspace目录
-                if [ -d "$dir/workspace" ]; then
-                    echo -e "${YELLOW}单独处理workspace目录...${NC}"
-                    sudo chown -R "$target_user:$target_group" "$dir/workspace"
-                    sudo chmod -R 755 "$dir/workspace"
-                fi
-                
-                # 处理日志文件
-                sudo find "$dir" -maxdepth 1 -name "ktransformers_install_*.log" -exec sudo chown "$target_user:$target_group" {} \;
-                
-                # 处理激活脚本
-                if [ -f "$dir/activate_env.sh" ]; then
-                    sudo chown "$target_user:$target_group" "$dir/activate_env.sh"
-                    sudo chmod 755 "$dir/activate_env.sh"
+    # 查找所有可能的workspace路径
+    local workspace_paths=(
+        "$install_dir_abs/workspace"
+        "$current_dir_abs/workspace"
+        "$(dirname "$install_dir_abs")/workspace"
+    )
+    
+    # 处理所有找到的workspace目录
+    for ws_path in "${workspace_paths[@]}"; do
+        if [ -d "$ws_path" ]; then
+            echo -e "${YELLOW}找到workspace目录: $ws_path${NC}"
+            
+            if [ $use_sudo -eq 1 ]; then
+                echo -e "${YELLOW}使用sudo更改所有权: $ws_path${NC}"
+                if sudo chown -R "$target_user:$target_group" "$ws_path"; then
+                    sudo chmod -R 755 "$ws_path"
+                    echo -e "${GREEN}✓ 成功设置workspace目录所有权${NC}"
+                else
+                    echo -e "${RED}× 设置workspace目录所有权失败${NC}"
                 fi
             else
-                echo -e "${GREEN}✓ 成功设置目录所有权: $dir${NC}"
-            fi
-        else
-            # 以root身份直接设置所有权
-            echo -e "${YELLOW}直接设置所有权...${NC}"
-            if ! chown -R "$target_user:$target_group" "$dir"; then
-                echo -e "${RED}× 所有权设置失败，尝试只处理关键目录和文件${NC}"
-                
-                # 处理workspace目录
-                if [ -d "$dir/workspace" ]; then
-                    echo -e "${YELLOW}单独处理workspace目录...${NC}"
-                    chown -R "$target_user:$target_group" "$dir/workspace"
-                    chmod -R 755 "$dir/workspace"
+                echo -e "${YELLOW}更改所有权: $ws_path${NC}"
+                if chown -R "$target_user:$target_group" "$ws_path"; then
+                    chmod -R 755 "$ws_path"
+                    echo -e "${GREEN}✓ 成功设置workspace目录所有权${NC}"
+                else
+                    echo -e "${RED}× 设置workspace目录所有权失败${NC}"
                 fi
-                
-                # 处理日志文件
-                find "$dir" -maxdepth 1 -name "ktransformers_install_*.log" -exec chown "$target_user:$target_group" {} \;
-                
-                # 处理激活脚本
-                if [ -f "$dir/activate_env.sh" ]; then
-                    chown "$target_user:$target_group" "$dir/activate_env.sh"
-                    chmod 755 "$dir/activate_env.sh"
-                fi
-            else
-                echo -e "${GREEN}✓ 成功设置目录所有权: $dir${NC}"
             fi
         fi
     done
     
-    # 确保日志文件有正确的所有权
-    if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
-        echo -e "${YELLOW}设置日志文件所有权: $LOG_FILE${NC}"
-        if [ $use_sudo -eq 1 ]; then
-            sudo chown "$target_user:$target_group" "$LOG_FILE"
-        else
-            chown "$target_user:$target_group" "$LOG_FILE"
+    # 处理原始目录
+    local orig_dirs=(
+        "$install_dir_abs"
+        "$current_dir_abs"
+    )
+    
+    for dir in "${orig_dirs[@]}"; do
+        if [ -d "$dir" ] && [ "$dir" != "/" ]; then
+            if [ -f "$dir/activate_env.sh" ]; then
+                echo -e "${YELLOW}设置激活脚本所有权: $dir/activate_env.sh${NC}"
+                if [ $use_sudo -eq 1 ]; then
+                    sudo chown "$target_user:$target_group" "$dir/activate_env.sh"
+                    sudo chmod 755 "$dir/activate_env.sh"
+                else
+                    chown "$target_user:$target_group" "$dir/activate_env.sh"
+                    chmod 755 "$dir/activate_env.sh"
+                fi
+            fi
+            
+            if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
+                echo -e "${YELLOW}设置日志文件所有权: $LOG_FILE${NC}"
+                if [ $use_sudo -eq 1 ]; then
+                    sudo chown "$target_user:$target_group" "$LOG_FILE"
+                else
+                    chown "$target_user:$target_group" "$LOG_FILE"
+                fi
+            fi
         fi
-    fi
+    done
     
     echo -e "${GREEN}✓ 目录所有权设置完成${NC}"
 }
@@ -3435,9 +3402,6 @@ main() {
     # 安装conda和创建环境 - 关键步骤，失败直接退出
     install_conda || { echo -e "${RED}× Conda安装失败，无法继续安装${NC}"; exit 1; }
     
-    # 配置conda环境目录
-    # configure_conda_env || { echo -e "${RED}× Conda环境配置失败${NC}"; exit 1; }
-
     # 创建conda环境
     create_conda_env || { echo -e "${RED}× Conda环境创建失败，无法继续安装${NC}"; exit 1; }
     
