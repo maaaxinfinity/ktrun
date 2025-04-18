@@ -722,11 +722,11 @@ log() {
     
 
     if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ${prefix} ${message}" | tee -a "$LOG_FILE"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ${prefix} ${message}" 
     elif [ -n "$LOG_FILE" ]; then
         # 尝试创建日志文件目录（如果不存在）
         mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ${prefix} ${message}" | tee -a "$LOG_FILE" 2>/dev/null || true
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ${prefix} ${message}"  2>/dev/null || true
     fi
 }
 
@@ -738,7 +738,7 @@ log_debug() {
     if [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${CYAN}[DEBUG] ${message}${NC}"
     fi
-    echo "[${timestamp}] [DEBUG] ${message}" | tee -a "$LOG_FILE"
+    echo "[${timestamp}] [DEBUG] ${message}" 
 }
 
 # 函数：询问是否启用调试模式
@@ -760,16 +760,16 @@ setup_log_file() {
     
 
     echo "===== KTransformers 安装日志 - $(date) =====" > "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
 
     if [ $DEBUG_MODE -eq 1 ]; then
-        echo "调试模式: 启用" | tee -a "$LOG_FILE"
+        echo "调试模式: 启用" 
         echo -e "${CYAN}日志文件: ${LOG_FILE}${NC}"
     else
-        echo "调试模式: 禁用" | tee -a "$LOG_FILE"
+        echo "调试模式: 禁用" 
     fi
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
 
     chmod 644 "$LOG_FILE"
@@ -785,7 +785,7 @@ setup_log_file() {
     fi
     
 
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 日志文件初始化完成" | tee -a "$LOG_FILE"
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 日志文件初始化完成" 
     
 
     if [ $DEBUG_MODE -eq 1 ]; then
@@ -794,6 +794,8 @@ setup_log_file() {
     fi
     
     export LOG_FILE
+    
+    exec > >(tee -a "$LOG_FILE") 2>&1
 }
 
 # 函数：收集系统信息
@@ -802,71 +804,71 @@ collect_system_info() {
         echo -e "${CYAN}[DEBUG] 正在收集系统信息...${NC}"
     fi
     
-    echo "===== 系统信息 =====" | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
+    echo "===== 系统信息 =====" 
+    echo "" 
     
 
-    echo "--- CPU信息 ---" | tee -a "$LOG_FILE"
+    echo "--- CPU信息 ---" 
     if command -v lscpu &> /dev/null; then
-        lscpu | tee -a "$LOG_FILE"
+        lscpu 
     else
-        echo "CPU型号: $(grep "model name" /proc/cpuinfo | head -n 1 | cut -d":" -f2 | sed 's/^[ \t]*//')" | tee -a "$LOG_FILE"
-        echo "CPU核心数: $(grep -c "processor" /proc/cpuinfo)" | tee -a "$LOG_FILE"
+        echo "CPU型号: $(grep "model name" /proc/cpuinfo | head -n 1 | cut -d":" -f2 | sed 's/^[ \t]*//')" 
+        echo "CPU核心数: $(grep -c "processor" /proc/cpuinfo)" 
     fi
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
 
-    echo "--- 内存信息 ---" | tee -a "$LOG_FILE"
+    echo "--- 内存信息 ---" 
     if command -v free &> /dev/null; then
-        free -h | tee -a "$LOG_FILE"
+        free -h 
     fi
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
 
-    echo "--- 显卡信息 ---" | tee -a "$LOG_FILE"
+    echo "--- 显卡信息 ---" 
     if command -v nvidia-smi &> /dev/null; then
-        nvidia-smi | tee -a "$LOG_FILE"
+        nvidia-smi 
         if [ $DEBUG_MODE -eq 1 ]; then
             echo -e "${CYAN}[DEBUG] 检测到NVIDIA显卡:${NC}"
             nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
         fi
     else
-        echo "未找到NVIDIA显卡或nvidia-smi工具" | tee -a "$LOG_FILE"
+        echo "未找到NVIDIA显卡或nvidia-smi工具" 
         if [ $DEBUG_MODE -eq 1 ]; then
             echo -e "${YELLOW}[DEBUG] 未检测到NVIDIA显卡或nvidia-smi工具${NC}"
         fi
     fi
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
 
-    echo "--- 系统信息 ---" | tee -a "$LOG_FILE"
+    echo "--- 系统信息 ---" 
     if command -v lsb_release &> /dev/null; then
-        lsb_release -a | tee -a "$LOG_FILE" 2>&1
+        lsb_release -a  2>&1
     elif [ -f /etc/os-release ]; then
-        cat /etc/os-release | tee -a "$LOG_FILE"
+        cat /etc/os-release 
     fi
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
 
-    echo "--- 内核信息 ---" | tee -a "$LOG_FILE"
-    uname -a | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
+    echo "--- 内核信息 ---" 
+    uname -a 
+    echo "" 
     
 
-    echo "--- 软件环境 ---" | tee -a "$LOG_FILE"
-    echo "Python版本: $(command -v python && python --version 2>&1 || echo "未安装")" | tee -a "$LOG_FILE"
-    echo "GCC版本: $(command -v gcc && gcc --version 2>&1 | head -n 1 || echo "未安装")" | tee -a "$LOG_FILE"
-    echo "Git版本: $(command -v git && git --version 2>&1 || echo "未安装")" | tee -a "$LOG_FILE"
+    echo "--- 软件环境 ---" 
+    echo "Python版本: $(command -v python && python --version 2>&1 || echo "未安装")" 
+    echo "GCC版本: $(command -v gcc && gcc --version 2>&1 | head -n 1 || echo "未安装")" 
+    echo "Git版本: $(command -v git && git --version 2>&1 || echo "未安装")" 
     
     if command -v nvcc &> /dev/null; then
-        echo "CUDA版本: $(nvcc --version | grep "release" | awk '{print $6}' | sed 's/,//')" | tee -a "$LOG_FILE"
+        echo "CUDA版本: $(nvcc --version | grep "release" | awk '{print $6}' | sed 's/,//')" 
     else
-        echo "CUDA版本: 未安装" | tee -a "$LOG_FILE"
+        echo "CUDA版本: 未安装" 
     fi
-    echo "" | tee -a "$LOG_FILE"
+    echo "" 
     
-    echo "===== 安装开始 =====" | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
+    echo "===== 安装开始 =====" 
+    echo "" 
     
     if [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${GREEN}✓ 系统信息收集完成${NC}"
@@ -888,7 +890,7 @@ retry_command_with_logging() {
     if [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${CYAN}[DEBUG] 命令: $command${NC}"
         echo -e "${CYAN}[DEBUG] 最大尝试次数: $max_attempts, 超时: ${timeout_duration}秒${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 执行命令: $command (最大尝试次数: $max_attempts, 超时: ${timeout_duration}秒)" | tee -a "$LOG_FILE"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 执行命令: $command (最大尝试次数: $max_attempts, 超时: ${timeout_duration}秒)" 
     fi
     
     while [ $attempt -le $max_attempts ]; do
@@ -897,7 +899,7 @@ retry_command_with_logging() {
 
         if [ $DEBUG_MODE -eq 1 ]; then
             local start_time=$(date +%s)
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始尝试 #$attempt: $command" | tee -a "$LOG_FILE"
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始尝试 #$attempt: $command" 
         fi
         
 
@@ -907,9 +909,9 @@ retry_command_with_logging() {
         
 
         if [ -n "$output" ]; then
-            echo "--- 命令输出开始 ---" | tee -a "$LOG_FILE"
-            echo "$output" | tee -a "$LOG_FILE"
-            echo "--- 命令输出结束 ---" | tee -a "$LOG_FILE"
+            echo "--- 命令输出开始 ---" 
+            echo "$output" 
+            echo "--- 命令输出结束 ---" 
         fi
         
         if [ $exit_code -eq 0 ]; then
@@ -917,17 +919,17 @@ retry_command_with_logging() {
                 local end_time=$(date +%s)
                 local duration=$((end_time - start_time))
                 echo -e "${CYAN}[DEBUG] 命令成功执行，耗时: ${duration}秒${NC}"
-                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令成功执行，耗时: ${duration}秒" | tee -a "$LOG_FILE"
+                echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令成功执行，耗时: ${duration}秒" 
             fi
             return 0
         fi
         
         if [ $exit_code -eq 124 ]; then
             echo -e "${YELLOW}命令执行超时${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令执行超时" | tee -a "$LOG_FILE"
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令执行超时" 
         else
             echo -e "${YELLOW}命令执行失败 (错误码: $exit_code)${NC}"
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令执行失败 (错误码: $exit_code)" | tee -a "$LOG_FILE"
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令执行失败 (错误码: $exit_code)" 
             
             # 在调试模式下显示更多错误信息
             if [ $DEBUG_MODE -eq 1 ] && [ -n "$output" ]; then
@@ -943,7 +945,7 @@ retry_command_with_logging() {
     done
     
     echo -e "${RED}命令执行失败，已达到最大重试次数${NC}"
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令执行失败，已达到最大重试次数" | tee -a "$LOG_FILE"
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 命令执行失败，已达到最大重试次数" 
     
     return 1
 }
@@ -954,16 +956,16 @@ check_root() {
     
     if [ $DEBUG_MODE -eq 1 ]; then
         echo -e "${CYAN}[DEBUG] 当前用户ID: $(id -u)${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 检查超级用户权限，当前用户ID: $(id -u)" | tee -a "$LOG_FILE"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 检查超级用户权限，当前用户ID: $(id -u)" 
     fi
     
     if [ "$(id -u)" -eq 0 ]; then
         echo -e "${GREEN}✓ 当前为超级用户${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 当前为超级用户" | tee -a "$LOG_FILE"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 当前为超级用户" 
         return 0
     else
         echo -e "${RED}× 当前不是超级用户，请使用sudo运行此脚本${NC}"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 当前不是超级用户，请使用sudo运行此脚本" | tee -a "$LOG_FILE"
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 当前不是超级用户，请使用sudo运行此脚本" 
         return 1
     fi
 }
@@ -1052,9 +1054,9 @@ setup_dependencies() {
             fi
         done
         
-        log "SUCCESS" "所有基本工具安装完成 " | tee -a "$LOG_FILE"
+        log "SUCCESS" "所有基本工具安装完成 " 
     else
-        log "SUCCESS" "所有基本工具已安装" | tee -a "$LOG_FILE"
+        log "SUCCESS" "所有基本工具已安装" 
     fi
 
     return 0
@@ -1210,14 +1212,14 @@ install_conda() {
     
     for conda_path in "${common_conda_paths[@]}"; do
         if [ -d "$conda_path/bin" ] && [ -x "$conda_path/bin/conda" ]; then
-            log "INFO" "在用户目录找到conda安装: $conda_path" | tee -a "$LOG_FILE"
+            log "INFO" "在用户目录找到conda安装: $conda_path" 
             CONDA_BASE_DIR="$conda_path"
             export PATH="$conda_path/bin:$PATH"
             
             # 验证conda是否可用
             if "$conda_path/bin/conda" --version &> /dev/null; then
                 local conda_version=$("$conda_path/bin/conda" --version)
-                log "SUCCESS" "✓ 用户目录中的conda可用，版本: $conda_version" | tee -a "$LOG_FILE"
+                log "SUCCESS" "✓ 用户目录中的conda可用，版本: $conda_version" 
                 conda config --set auto_activate_base false
                 return 0
             else
@@ -1235,13 +1237,13 @@ install_conda() {
          export PATH="$CONDA_BASE_DIR/bin:$PATH"
          if "$CONDA_BASE_DIR/bin/conda" --version &> /dev/null; then
              local conda_version=$("$CONDA_BASE_DIR/bin/conda" --version)
-             log "SUCCESS" "✓ $CONDA_BASE_DIR 中的conda可用，版本: $conda_version" | tee -a "$LOG_FILE"
+             log "SUCCESS" "✓ $CONDA_BASE_DIR 中的conda可用，版本: $conda_version" 
              conda config --set auto_activate_base false
              return 0
          else
-             log "WARN" "$CONDA_BASE_DIR 中的conda无法执行，将继续安装..." | tee -a "$LOG_FILE"
+             log "WARN" "$CONDA_BASE_DIR 中的conda无法执行，将继续安装..." 
              # 清理旧目录以避免冲突
-             log "WARN" "移除旧的 $CONDA_BASE_DIR 以重新安装..." | tee -a "$LOG_FILE"
+             log "WARN" "移除旧的 $CONDA_BASE_DIR 以重新安装..." 
              rm -rf "$CONDA_BASE_DIR"
          fi
     fi
@@ -1251,23 +1253,23 @@ install_conda() {
     local miniconda_url=""
     if [ $USE_GHPROXY -eq 1 ]; then
         miniconda_url="https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-        log "INFO" "使用清华镜像下载Miniconda" | tee -a "$LOG_FILE"
+        log "INFO" "使用清华镜像下载Miniconda" 
     else
         miniconda_url="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-        log "INFO" "使用官方源下载Miniconda" | tee -a "$LOG_FILE"
+        log "INFO" "使用官方源下载Miniconda" 
     fi
 
     # 下载miniconda安装脚本
-    log "INFO" "下载Miniconda安装脚本..." | tee -a "$LOG_FILE"
+    log "INFO" "下载Miniconda安装脚本..." 
     local miniconda_installer="$TMP_DIR/miniconda.sh" # 使用临时目录
     retry_command_with_logging "wget --quiet --show-progress $miniconda_url -O $miniconda_installer" 300 || {
-            log "ERROR" "下载Miniconda失败" | tee -a "$LOG_FILE"
+            log "ERROR" "下载Miniconda失败" 
         rm -f "$miniconda_installer"
         return 1
     }
 
     # 安装conda
-    log "INFO" "开始安装conda到: $CONDA_BASE_DIR" | tee -a "$LOG_FILE"
+    log "INFO" "开始安装conda到: $CONDA_BASE_DIR" 
     # 使用 -u 选项尝试更新（如果已存在），-b 批处理模式，-p 指定路径
     bash "$miniconda_installer" -b -u -p "$CONDA_BASE_DIR"
     local install_status=$?
@@ -1276,28 +1278,28 @@ install_conda() {
     rm -f "$miniconda_installer"
 
     if [ $install_status -ne 0 ]; then
-        log "ERROR" "conda安装失败 (退出码: $install_status)" | tee -a "$LOG_FILE"
+        log "ERROR" "conda安装失败 (退出码: $install_status)" 
         return 1
     fi
 
     # 如果是sudo模式，设置正确的权限
     if [ $using_sudo -eq 1 ]; then
-        log "INFO" "设置conda目录权限给用户: $real_user" | tee -a "$LOG_FILE"
-        chown -R "$real_user:$(id -gn $real_user 2>/dev/null || echo $real_user)" "$CONDA_BASE_DIR" || log "WARN" "设置 $CONDA_BASE_DIR 权限失败" | tee -a "$LOG_FILE"
+        log "INFO" "设置conda目录权限给用户: $real_user" 
+        chown -R "$real_user:$(id -gn $real_user 2>/dev/null || echo $real_user)" "$CONDA_BASE_DIR" || log "WARN" "设置 $CONDA_BASE_DIR 权限失败" 
     fi
 
     # 确保新安装的conda在当前会话PATH中
     export PATH="$CONDA_BASE_DIR/bin:$PATH"
-    log "INFO" "已将新安装的conda路径添加到当前会话PATH: $CONDA_BASE_DIR/bin" | tee -a "$LOG_FILE"
+    log "INFO" "已将新安装的conda路径添加到当前会话PATH: $CONDA_BASE_DIR/bin" 
 
     # 验证安装
     if "$CONDA_BASE_DIR/bin/conda" --version &> /dev/null; then
-        log "SUCCESS" "✓ conda安装成功且可用" | tee -a "$LOG_FILE"
+        log "SUCCESS" "✓ conda安装成功且可用" 
         local conda_version=$("$CONDA_BASE_DIR/bin/conda" --version)
-        log "INFO" "conda版本: $conda_version" | tee -a "$LOG_FILE"
+        log "INFO" "conda版本: $conda_version" 
 
         # 初始化conda (将配置写入用户的 .bashrc)
-        log "INFO" "初始化conda (修改 $real_home/.bashrc)..." | tee -a "$LOG_FILE"
+        log "INFO" "初始化conda (修改 $real_home/.bashrc)..." 
         # 需要确保以目标用户身份执行conda init
         if [ $using_sudo -eq 1 ]; then
             sudo -u "$real_user" "$CONDA_BASE_DIR/bin/conda" init bash || log "WARN" "以用户 $real_user 初始化conda失败"
@@ -1305,14 +1307,14 @@ install_conda() {
             "$CONDA_BASE_DIR/bin/conda" init bash || log "WARN" "初始化conda失败"
         fi
 
-        log "INFO" "配置conda默认设置" | tee -a "$LOG_FILE"
+        log "INFO" "配置conda默认设置" 
         conda config --set auto_activate_base false
 
-        log "SUCCESS" "conda安装和初始化完成" | tee -a "$LOG_FILE"
+        log "SUCCESS" "conda安装和初始化完成" 
         
         return 0
     else
-        log "ERROR" "conda安装后验证失败，无法执行 $CONDA_BASE_DIR/bin/conda" | tee -a "$LOG_FILE"
+        log "ERROR" "conda安装后验证失败，无法执行 $CONDA_BASE_DIR/bin/conda" 
         return 1
     fi
 }
@@ -1328,22 +1330,22 @@ create_conda_env() {
     # 创建环境
     echo -e "${YELLOW}创建conda环境: ${ENV_NAME}...${NC}"
     # 增加超时时间
-    retry_command_with_logging "conda create -n $ENV_NAME python=3.12 -y" 300 | tee -a "$LOG_FILE"
+    retry_command_with_logging "conda create -n $ENV_NAME python=3.12 -y" 300 
 
     local status=$?
     if [ $status -eq 0 ]; then
-        echo -e "${GREEN}✓ conda环境 $ENV_NAME 创建成功${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ conda环境 $ENV_NAME 创建成功${NC}" 
         # 打印环境路径
         local env_path=$(conda info --envs | grep "^${ENV_NAME}\s" | awk '{print $NF}')
         if [ -n "$env_path" ]; then
-             echo -e "${GREEN}环境路径: ${env_path}${NC}" | tee -a "$LOG_FILE"
+             echo -e "${GREEN}环境路径: ${env_path}${NC}" 
         fi
         return 0
     else
-        echo -e "${RED}× conda环境 $ENV_NAME 创建失败${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× conda环境 $ENV_NAME 创建失败${NC}" 
         # 尝试列出现有环境以帮助诊断
-        echo -e "${YELLOW}当前存在的conda环境:${NC}" | tee -a "$LOG_FILE"
-        conda info --envs | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}当前存在的conda环境:${NC}" 
+        conda info --envs 
         return 1
     fi
 }
@@ -1360,10 +1362,10 @@ check_and_set_pip_mirror() {
         current_index_url=$(grep "index-url" "$pip_config_file" 2>/dev/null | cut -d "=" -f 2 | tr -d " ")
         
         if [ -n "$current_index_url" ]; then
-            echo -e "${YELLOW}当前pip源: ${current_index_url}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}当前pip源: ${current_index_url}${NC}" 
             
             if echo "$current_index_url" | grep -q -E "mirrors.ustc.edu.cn|tuna.tsinghua.edu.cn|mirrors.aliyun.com"; then
-                echo -e "${GREEN}✓ 已配置国内pip源${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ 已配置国内pip源${NC}" 
                 return 0
             fi
         fi
@@ -1371,17 +1373,17 @@ check_and_set_pip_mirror() {
     
     # 使用用户选择的国内代理配置
     if [ $USE_GHPROXY -eq 1 ]; then
-        echo -e "${YELLOW}根据您的选择，将设置pip源为USTC源...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}根据您的选择，将设置pip源为USTC源...${NC}" 
         
         mkdir -p $(dirname "$pip_config_file")
         echo "[global]
 index-url = https://mirrors.ustc.edu.cn/pypi/web/simple
 format = columns" > "$pip_config_file"
         
-        echo -e "${GREEN}✓ pip源已设置为USTC源${NC}" | tee -a "$LOG_FILE"
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] pip源已设置为USTC源" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ pip源已设置为USTC源${NC}" 
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] pip源已设置为USTC源" 
     else
-        echo -e "${GREEN}✓ 保持当前pip源设置${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ 保持当前pip源设置${NC}" 
     fi
     
     return 0
@@ -1399,7 +1401,7 @@ detect_pytorch_cuda_version() {
 
     if command_exists nvidia-smi; then
         driver_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)
-        echo -e "${GREEN}✓ 检测到NVIDIA驱动版本: ${driver_version}${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ 检测到NVIDIA驱动版本: ${driver_version}${NC}" 
         
 
         case "${driver_version%%.*}" in
@@ -1417,18 +1419,18 @@ detect_pytorch_cuda_version() {
         esac
         
         if [ -n "$estimated_cuda_version" ]; then
-            echo -e "${GREEN}✓ 驱动版本${driver_version}对应的CUDA版本: ${estimated_cuda_version}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ 驱动版本${driver_version}对应的CUDA版本: ${estimated_cuda_version}${NC}" 
         else
-            echo -e "${YELLOW}警告: 无法根据驱动版本${driver_version}估计CUDA版本${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}警告: 无法根据驱动版本${driver_version}估计CUDA版本${NC}" 
         fi
         
 
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[DEBUG] GPU详细信息:${NC}" | tee -a "$LOG_FILE"
-            nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader | sed 's/^/  /' | tee -a "$LOG_FILE"
+            echo -e "${CYAN}[DEBUG] GPU详细信息:${NC}" 
+            nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader | sed 's/^/  /' 
         fi
     else
-        echo -e "${YELLOW}警告: 未检测到NVIDIA GPU或无法运行nvidia-smi${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}警告: 未检测到NVIDIA GPU或无法运行nvidia-smi${NC}" 
     fi
     
 
@@ -1444,14 +1446,14 @@ detect_pytorch_cuda_version() {
         if [ -f "$specific_cuda_path" ]; then
             preferred_nvcc_path="$specific_cuda_path"
             found_preferred_cuda=1
-            echo -e "${GREEN}✓ 找到与驱动匹配的CUDA ${estimated_cuda_version}: ${preferred_nvcc_path}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ 找到与驱动匹配的CUDA ${estimated_cuda_version}: ${preferred_nvcc_path}${NC}" 
 
         elif [ -f "$default_cuda_path" ]; then
             local default_version=$("$default_cuda_path" -V 2>&1 | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
             if [ "$default_version" = "$estimated_cuda_version" ]; then
                 preferred_nvcc_path="$default_cuda_path"
                 found_preferred_cuda=1
-                echo -e "${GREEN}✓ 默认CUDA版本与驱动匹配: ${preferred_nvcc_path} (${default_version})${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ 默认CUDA版本与驱动匹配: ${preferred_nvcc_path} (${default_version})${NC}" 
             fi
         fi
     fi
@@ -1461,18 +1463,18 @@ detect_pytorch_cuda_version() {
         local version_output=$("$preferred_nvcc_path" -V 2>/dev/null)
         if [ -n "$version_output" ]; then
             nvcc_cuda_version=$(echo "$version_output" | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
-            echo -e "${GREEN}✓ 使用与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ 使用与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}" 
             
 
             local nvcc_dir=$(dirname "$preferred_nvcc_path")
             export PATH="${nvcc_dir}:$PATH"
-            echo -e "${YELLOW}已将匹配的CUDA版本添加到PATH: ${nvcc_dir}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}已将匹配的CUDA版本添加到PATH: ${nvcc_dir}${NC}" 
             
 
             if [ $DEBUG_MODE -eq 1 ]; then
-                echo -e "${CYAN}[DEBUG] 设置与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}" | tee -a "$LOG_FILE"
-                echo -e "${CYAN}[DEBUG] CUDA路径: ${nvcc_dir}${NC}" | tee -a "$LOG_FILE"
-                echo -e "${CYAN}[DEBUG] 当前PATH: $PATH${NC}" | tee -a "$LOG_FILE"
+                echo -e "${CYAN}[DEBUG] 设置与驱动匹配的CUDA版本: ${nvcc_cuda_version}${NC}" 
+                echo -e "${CYAN}[DEBUG] CUDA路径: ${nvcc_dir}${NC}" 
+                echo -e "${CYAN}[DEBUG] 当前PATH: $PATH${NC}" 
             fi
         fi
 
@@ -1482,19 +1484,19 @@ detect_pytorch_cuda_version() {
         
 
         if [ -n "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
-            echo -e "${YELLOW}警告: PATH中的CUDA版本(${nvcc_cuda_version})与驱动兼容的版本(${estimated_cuda_version})不匹配${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}推荐使用与驱动匹配的CUDA ${estimated_cuda_version}以获得最佳兼容性${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}警告: PATH中的CUDA版本(${nvcc_cuda_version})与驱动兼容的版本(${estimated_cuda_version})不匹配${NC}" 
+            echo -e "${YELLOW}推荐使用与驱动匹配的CUDA ${estimated_cuda_version}以获得最佳兼容性${NC}" 
         fi
         
-        echo -e "${GREEN}✓ 使用PATH中的CUDA版本: ${nvcc_cuda_version} (${nvcc_path})${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ 使用PATH中的CUDA版本: ${nvcc_cuda_version} (${nvcc_path})${NC}" 
         
 
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[DEBUG] CUDA详细信息:${NC}" | tee -a "$LOG_FILE"
-            nvcc -V | sed 's/^/  /' | tee -a "$LOG_FILE"
+            echo -e "${CYAN}[DEBUG] CUDA详细信息:${NC}" 
+            nvcc -V | sed 's/^/  /' 
             
 
-            echo -e "${CYAN}[DEBUG] 检查系统中的其他CUDA版本:${NC}" | tee -a "$LOG_FILE"
+            echo -e "${CYAN}[DEBUG] 检查系统中的其他CUDA版本:${NC}" 
             
 
             local cuda_dirs=(
@@ -1515,60 +1517,60 @@ detect_pytorch_cuda_version() {
                 if [ -f "${cuda_dir}/bin/nvcc" ] && [ "${cuda_dir}/bin/nvcc" != "$nvcc_path" ]; then
                     local other_version=$("${cuda_dir}/bin/nvcc" -V 2>&1 | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
                     if [ -n "$other_version" ]; then
-                        echo -e "${CYAN}[DEBUG]   发现其他CUDA版本: ${other_version} (${cuda_dir}/bin/nvcc)${NC}" | tee -a "$LOG_FILE"
+                        echo -e "${CYAN}[DEBUG]   发现其他CUDA版本: ${other_version} (${cuda_dir}/bin/nvcc)${NC}" 
                         found_other=1
                         
 
                         if [ "$other_version" = "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
-                            echo -e "${CYAN}[DEBUG]   *** 推荐使用此版本，与NVIDIA驱动更兼容 ***${NC}" | tee -a "$LOG_FILE"
-                            echo -e "${CYAN}[DEBUG]   可以通过设置PATH来使用它: export PATH=${cuda_dir}/bin:\$PATH${NC}" | tee -a "$LOG_FILE"
+                            echo -e "${CYAN}[DEBUG]   *** 推荐使用此版本，与NVIDIA驱动更兼容 ***${NC}" 
+                            echo -e "${CYAN}[DEBUG]   可以通过设置PATH来使用它: export PATH=${cuda_dir}/bin:\$PATH${NC}" 
                         fi
                     fi
                 fi
             done
             
             if [ $found_other -eq 0 ]; then
-                echo -e "${CYAN}[DEBUG]   未发现其他CUDA版本${NC}" | tee -a "$LOG_FILE"
+                echo -e "${CYAN}[DEBUG]   未发现其他CUDA版本${NC}" 
             fi
         fi
     else
-        echo -e "${YELLOW}未在当前PATH中检测到nvcc命令，尝试其他方法...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}未在当前PATH中检测到nvcc命令，尝试其他方法...${NC}" 
         
 
         if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
-            echo -e "${YELLOW}检测到sudo环境，尝试在用户${SUDO_USER}的环境中查找nvcc...${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}检测到sudo环境，尝试在用户${SUDO_USER}的环境中查找nvcc...${NC}" 
             local user_nvcc_path=$(sudo -u "$SUDO_USER" which nvcc 2>/dev/null)
             
             if [ -n "$user_nvcc_path" ]; then
-                echo -e "${GREEN}✓ 在用户${SUDO_USER}环境中找到nvcc: ${user_nvcc_path}${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ 在用户${SUDO_USER}环境中找到nvcc: ${user_nvcc_path}${NC}" 
                 
 
                 local version_output=$(sudo -u "$SUDO_USER" nvcc -V 2>/dev/null || "$user_nvcc_path" -V 2>/dev/null)
                 if [ -n "$version_output" ]; then
                     nvcc_cuda_version=$(echo "$version_output" | grep "release" | awk '{print $6}' | sed 's/,//' | sed 's/V//')
-                    echo -e "${GREEN}✓ 检测到CUDA版本: ${nvcc_cuda_version}${NC}" | tee -a "$LOG_FILE"
+                    echo -e "${GREEN}✓ 检测到CUDA版本: ${nvcc_cuda_version}${NC}" 
                     
 
                     if [ -n "$estimated_cuda_version" ] && [ "$nvcc_cuda_version" != "$estimated_cuda_version" ]; then
-                        echo -e "${YELLOW}警告: 用户环境中的CUDA版本(${nvcc_cuda_version})与驱动兼容的版本(${estimated_cuda_version})不匹配${NC}" | tee -a "$LOG_FILE"
+                        echo -e "${YELLOW}警告: 用户环境中的CUDA版本(${nvcc_cuda_version})与驱动兼容的版本(${estimated_cuda_version})不匹配${NC}" 
                     fi
                     
 
                     local nvcc_dir=$(dirname "$user_nvcc_path")
-                    echo -e "${YELLOW}添加${nvcc_dir}到PATH...${NC}" | tee -a "$LOG_FILE"
+                    echo -e "${YELLOW}添加${nvcc_dir}到PATH...${NC}" 
                     export PATH="$nvcc_dir:$PATH"
                     
 
                     local temp_bin_dir="/tmp/cuda_bin_$$"
-                    echo -e "${YELLOW}创建临时CUDA工具目录: ${temp_bin_dir}${NC}" | tee -a "$LOG_FILE"
+                    echo -e "${YELLOW}创建临时CUDA工具目录: ${temp_bin_dir}${NC}" 
                     mkdir -p "$temp_bin_dir"
                     ln -sf "$user_nvcc_path" "$temp_bin_dir/nvcc"
                     export PATH="$temp_bin_dir:$PATH"
                     
                     if [ $DEBUG_MODE -eq 1 ]; then
-                        echo -e "${CYAN}[DEBUG] 临时CUDA目录已创建: ${temp_bin_dir}${NC}" | tee -a "$LOG_FILE"
-                        echo -e "${CYAN}[DEBUG] 已将nvcc软链接到: $temp_bin_dir/nvcc${NC}" | tee -a "$LOG_FILE"
-                        echo -e "${CYAN}[DEBUG] 当前PATH: $PATH${NC}" | tee -a "$LOG_FILE"
+                        echo -e "${CYAN}[DEBUG] 临时CUDA目录已创建: ${temp_bin_dir}${NC}" 
+                        echo -e "${CYAN}[DEBUG] 已将nvcc软链接到: $temp_bin_dir/nvcc${NC}" 
+                        echo -e "${CYAN}[DEBUG] 当前PATH: $PATH${NC}" 
                     fi
                 fi
             fi
@@ -1577,20 +1579,20 @@ detect_pytorch_cuda_version() {
 
         if [ -z "$nvcc_cuda_version" ]; then
             echo -e "${RED}[错误] 未能检测到有效的CUDA环境。${NC}"
-            echo -e "${RED}[错误] 请确保已正确安装NVIDIA CUDA工具包，并将其添加到PATH中。${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}提示: 确认是否已安装NVIDIA驱动和CUDA工具包${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}提示: 请运行以下命令检查CUDA安装:${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}  which nvcc${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}  nvcc -V${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}[错误] 请确保已正确安装NVIDIA CUDA工具包，并将其添加到PATH中。${NC}" 
+            echo -e "${YELLOW}提示: 确认是否已安装NVIDIA驱动和CUDA工具包${NC}" 
+            echo -e "${YELLOW}提示: 请运行以下命令检查CUDA安装:${NC}" 
+            echo -e "${YELLOW}  which nvcc${NC}" 
+            echo -e "${YELLOW}  nvcc -V${NC}" 
             
             if [ -n "$estimated_cuda_version" ]; then
-                echo -e "${YELLOW}提示: 根据NVIDIA驱动版本${driver_version}，建议安装CUDA ${estimated_cuda_version}${NC}" | tee -a "$LOG_FILE"
+                echo -e "${YELLOW}提示: 根据NVIDIA驱动版本${driver_version}，建议安装CUDA ${estimated_cuda_version}${NC}" 
             fi
             
-            echo -e "${YELLOW}提示: 如果已安装但未找到，请将CUDA路径添加到环境变量:${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}  export PATH=/usr/local/cuda/bin:\$PATH${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}提示: 如果已安装但未找到，请将CUDA路径添加到环境变量:${NC}" 
+            echo -e "${YELLOW}  export PATH=/usr/local/cuda/bin:\$PATH${NC}" 
             
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 安装终止: 未检测到CUDA环境" | tee -a "$LOG_FILE"
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] 安装终止: 未检测到CUDA环境" 
             
 
             exit 1
@@ -1607,7 +1609,7 @@ detect_pytorch_cuda_version() {
         formatted_cuda_version="cu$(echo $cuda_version | sed 's/\.//')"
     else
 
-        echo -e "${RED}[错误] 无法确定CUDA版本${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}[错误] 无法确定CUDA版本${NC}" 
         exit 1
     fi
     
@@ -1615,12 +1617,12 @@ detect_pytorch_cuda_version() {
     if command_exists nvcc; then
         echo -e "${GREEN}✓ nvcc命令可用${NC}"
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[DEBUG] nvcc路径: $(which nvcc)${NC}" | tee -a "$LOG_FILE"
-            echo -e "${CYAN}[DEBUG] nvcc版本: $(nvcc -V | head -n1)${NC}" | tee -a "$LOG_FILE"
+            echo -e "${CYAN}[DEBUG] nvcc路径: $(which nvcc)${NC}" 
+            echo -e "${CYAN}[DEBUG] nvcc版本: $(nvcc -V | head -n1)${NC}" 
         fi
     else
 
-        echo -e "${RED}[错误] nvcc命令检测失败，环境可能已经改变${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}[错误] nvcc命令检测失败，环境可能已经改变${NC}" 
         exit 1
     fi
     
@@ -1628,21 +1630,21 @@ detect_pytorch_cuda_version() {
     CUDA_VERSION="$cuda_version"
     FORMATTED_CUDA_VERSION="$formatted_cuda_version"
     
-    echo -e "${BLUE}格式化的CUDA版本：${FORMATTED_CUDA_VERSION}${NC}" | tee -a "$LOG_FILE"
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 检测到CUDA版本: ${CUDA_VERSION}, 格式化为${FORMATTED_CUDA_VERSION}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}格式化的CUDA版本：${FORMATTED_CUDA_VERSION}${NC}" 
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 检测到CUDA版本: ${CUDA_VERSION}, 格式化为${FORMATTED_CUDA_VERSION}" 
     
     return 0
 }
 
 # 安装并验证PyTorch
 install_pytorch() {
-    echo -e "${BLUE}[步骤 6] 安装GPU版本PyTorch${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 6] 安装GPU版本PyTorch${NC}" 
 
     
     local torch_version=""
     local install_success=false
     
-    echo -e "${YELLOW}开始安装PyTorch GPU版本 (CUDA ${CUDA_VERSION})...${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}开始安装PyTorch GPU版本 (CUDA ${CUDA_VERSION})...${NC}" 
     
 
     local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
@@ -1656,83 +1658,83 @@ install_pytorch() {
     local current_pip_index=$(pip config list | grep -o "index-url=.*" | cut -d= -f2 | tr -d "'")
     
     if [[ "$current_pip_index" == *"mirrors.ustc.edu.cn"* ]]; then
-        echo -e "${YELLOW}检测到已配置中科大镜像源，将继续使用${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}检测到已配置中科大镜像源，将继续使用${NC}" 
         torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
     elif [[ "$current_pip_index" == *"mirrors.tuna.tsinghua.edu.cn"* ]]; then
-        echo -e "${YELLOW}检测到已配置清华镜像源，将继续使用${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}检测到已配置清华镜像源，将继续使用${NC}" 
         torch_mirror="https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl"
     elif [ "${USE_GHPROXY:-0}" = "1" ]; then
         # 国内环境，使用镜像站
         torch_mirror="https://mirrors.ustc.edu.cn/pytorch/whl"
-        echo -e "${YELLOW}根据用户设置使用中科大镜像源${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}根据用户设置使用中科大镜像源${NC}" 
     else
         # 国外环境，使用官方源
         torch_mirror="https://download.pytorch.org/whl"
-        echo -e "${YELLOW}根据用户设置使用官方源${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}根据用户设置使用官方源${NC}" 
     fi
     
 
     pip_torch_cmd="pip install torch torchvision torchaudio -f ${torch_mirror}/cu${cuda_major}$(echo "$CUDA_VERSION" | cut -d. -f2)"
     
 
-    echo -e "${CYAN}[命令] ${pip_torch_cmd}${NC}" | tee -a "$LOG_FILE"
+    echo -e "${CYAN}[命令] ${pip_torch_cmd}${NC}" 
     if eval "$pip_torch_cmd"; then
         echo -e "${GREEN}✓ PyTorch通过pip安装成功${NC}"
         install_success=true
     else
-        echo -e "${YELLOW}通过pip安装PyTorch失败，尝试通过conda安装...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}通过pip安装PyTorch失败，尝试通过conda安装...${NC}" 
         
 
         if command_exists conda; then
-            echo -e "${CYAN}[命令] conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia${NC}" | tee -a "$LOG_FILE"
+            echo -e "${CYAN}[命令] conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia${NC}" 
             if conda install -y pytorch torchvision torchaudio pytorch-cuda=${CUDA_VERSION} -c pytorch -c nvidia; then
                 echo -e "${GREEN}✓ PyTorch通过conda安装成功${NC}"
                 install_success=true
             else
-                echo -e "${RED}× PyTorch安装失败${NC}" | tee -a "$LOG_FILE"
+                echo -e "${RED}× PyTorch安装失败${NC}" 
                 return 1
             fi
         else
-            echo -e "${RED}× conda不可用，PyTorch安装失败${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× conda不可用，PyTorch安装失败${NC}" 
             return 1
         fi
     fi
     
 
     if [ "$install_success" = true ]; then
-        echo -e "${YELLOW}验证PyTorch和CUDA...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}验证PyTorch和CUDA...${NC}" 
         
 
         torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
-            echo -e "${GREEN}✓ PyTorch版本: ${torch_version}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ PyTorch版本: ${torch_version}${NC}" 
             TORCH_VERSION="$torch_version"
             
 
             FORMATTED_TORCH_VERSION="torch$(echo $torch_version | cut -d '.' -f 1,2)"
-            echo -e "${BLUE}格式化的PyTorch版本：${FORMATTED_TORCH_VERSION}${NC}" | tee -a "$LOG_FILE"
+            echo -e "${BLUE}格式化的PyTorch版本：${FORMATTED_TORCH_VERSION}${NC}" 
             
 
             if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" &>/dev/null; then
                 local cuda_torch_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
-                echo -e "${GREEN}✓ CUDA可用，PyTorch报告的CUDA版本: ${cuda_torch_version}${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ CUDA可用，PyTorch报告的CUDA版本: ${cuda_torch_version}${NC}" 
                 
 
                 if [ -n "$cuda_torch_version" ] && [ -z "$CUDA_VERSION" ]; then
                     CUDA_VERSION="$cuda_torch_version"
                     FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
-                    echo -e "${YELLOW}更新CUDA版本为PyTorch报告的版本: ${CUDA_VERSION}${NC}" | tee -a "$LOG_FILE"
+                    echo -e "${YELLOW}更新CUDA版本为PyTorch报告的版本: ${CUDA_VERSION}${NC}" 
                 fi
                 
-                echo -e "${GREEN}✓ GPU加速已启用${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ GPU加速已启用${NC}" 
                 return 0
             else
-                echo -e "${RED}× CUDA不可用，PyTorch将使用CPU模式${NC}" | tee -a "$LOG_FILE" 
-                echo -e "${YELLOW}您可能需要检查NVIDIA驱动和CUDA安装${NC}" | tee -a "$LOG_FILE"
+                echo -e "${RED}× CUDA不可用，PyTorch将使用CPU模式${NC}"  
+                echo -e "${YELLOW}您可能需要检查NVIDIA驱动和CUDA安装${NC}" 
                 return 1
             fi
         else
-            echo -e "${RED}× 无法获取PyTorch版本信息${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× 无法获取PyTorch版本信息${NC}" 
             return 1
         fi
     fi
@@ -1742,11 +1744,11 @@ install_pytorch() {
 
 # 6. 初始化git子模块
 init_git_submodules() {
-    log "INFO" "初始化子模块..." | tee -a "$LOG_FILE"
+    log "INFO" "初始化子模块..." 
     
     # 更新.gitmodules中的URL以使用代理
     if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-        log "INFO" "使用代理配置子模块URL..." | tee -a "$LOG_FILE"
+        log "INFO" "使用代理配置子模块URL..." 
         
         # 检查.gitmodules文件是否存在
         if [ -f ".gitmodules" ]; then
@@ -1756,7 +1758,7 @@ init_git_submodules() {
             # 替换顶级.gitmodules中的URL
             sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
             
-            log "INFO" "更新.gitmodules中的URL以使用代理..." | tee -a "$LOG_FILE"
+            log "INFO" "更新.gitmodules中的URL以使用代理..." 
             git submodule sync
         fi
     fi
@@ -1766,20 +1768,20 @@ init_git_submodules() {
     
     # 递归处理所有子模块及其嵌套子模块的URL
     if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-        log "INFO" "递归更新所有子模块的URL以使用代理..." | tee -a "$LOG_FILE"
+        log "INFO" "递归更新所有子模块的URL以使用代理..." 
         
         # 获取所有子模块路径
         submodule_paths=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
         
         for submodule_path in $submodule_paths; do
-            log "INFO" "处理子模块: $submodule_path" | tee -a "$LOG_FILE"
+            log "INFO" "处理子模块: $submodule_path" 
             
             # 进入子模块目录
             if [ -d "$submodule_path" ]; then
                 (cd "$submodule_path" && {
                     # 检查子模块中是否有自己的.gitmodules文件
                     if [ -f ".gitmodules" ]; then
-                        log "INFO" "更新子模块 $submodule_path 中的.gitmodules" | tee -a "$LOG_FILE"
+                        log "INFO" "更新子模块 $submodule_path 中的.gitmodules" 
                         
                         # 备份原始.gitmodules文件
                         cp .gitmodules .gitmodules.backup
@@ -1796,12 +1798,12 @@ init_git_submodules() {
                         # 递归处理嵌套子模块
                         nested_submodule_paths=$(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
                         for nested_path in $nested_submodule_paths; do
-                            log "INFO" "处理嵌套子模块: $nested_path" | tee -a "$LOG_FILE"
+                            log "INFO" "处理嵌套子模块: $nested_path" 
                             # 进入嵌套子模块目录
                             if [ -d "$nested_path" ]; then
                                 (cd "$nested_path" && {
                                     if [ -f ".gitmodules" ]; then
-                                        log "INFO" "更新嵌套子模块 $nested_path 中的.gitmodules" | tee -a "$LOG_FILE"
+                                        log "INFO" "更新嵌套子模块 $nested_path 中的.gitmodules" 
                                         cp .gitmodules .gitmodules.backup
                                         sed -i "s#url = https://github.com/#url = ${GHPROXY_URL}/https://github.com/#g" .gitmodules
                                         git submodule sync
@@ -1817,50 +1819,50 @@ init_git_submodules() {
     fi
     
     # 最后再执行一次完整的递归更新
-    log "INFO" "完成子模块初始化..." | tee -a "$LOG_FILE"
+    log "INFO" "完成子模块初始化..." 
     git submodule update --init --recursive
     
-    log "SUCCESS" "子模块初始化完成" | tee -a "$LOG_FILE"
+    log "SUCCESS" "子模块初始化完成" 
     return 0
 }
 
 # 7. 安装libnuma库
 install_libnuma() {
-    echo -e "${BLUE}[步骤 7] 安装libnuma库${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 7] 安装libnuma库${NC}" 
     
     # 检查是否已安装
     if ldconfig -p | grep -q "libnuma.so"; then
-        echo -e "${GREEN}✓ libnuma已安装${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ libnuma已安装${NC}" 
         return 0
     fi
     
-    echo -e "${YELLOW}libnuma未安装，尝试安装...${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}libnuma未安装，尝试安装...${NC}" 
     
     # 尝试使用apt安装
     if command_exists apt-get; then
-        echo -e "${YELLOW}使用apt安装libnuma-dev...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}使用apt安装libnuma-dev...${NC}" 
         apt-get update && apt-get install -y libnuma-dev
         if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ libnuma-dev安装成功${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ libnuma-dev安装成功${NC}" 
             return 0
         else
-            echo -e "${RED}× apt安装libnuma-dev失败${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× apt安装libnuma-dev失败${NC}" 
         fi
     fi
     
-    echo -e "${RED}× 无法安装libnuma库，请手动安装后再继续${NC}" | tee -a "$LOG_FILE"
+    echo -e "${RED}× 无法安装libnuma库，请手动安装后再继续${NC}" 
     return 1
 }
 
 # 8. 设置USE_NUMA环境变量
 set_use_numa() {
-    echo -e "${BLUE}[步骤 8] 设置USE_NUMA环境变量${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 8] 设置USE_NUMA环境变量${NC}" 
     
     if [ $USE_NUMA -eq 1 ]; then
         export USE_NUMA=1
-        echo -e "${GREEN}✓ 已启用USE_NUMA环境变量${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ 已启用USE_NUMA环境变量${NC}" 
     else
-        echo -e "${YELLOW}未启用USE_NUMA环境变量${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}未启用USE_NUMA环境变量${NC}" 
     fi
     
     return 0
@@ -1868,12 +1870,12 @@ set_use_numa() {
 
 # 9. 下载预编译的flashinfer
 download_flashinfer() {
-    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}" | tee -a "$LOG_FILE"
-    log "INFO" "开始安装FlashInfer..." | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 10] 安装FlashInfer${NC}" 
+    log "INFO" "开始安装FlashInfer..." 
     
     # 确保CUDA和PyTorch版本信息可用
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
-        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..." | tee -a "$LOG_FILE"
+        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..." 
         
         local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
@@ -1884,10 +1886,10 @@ download_flashinfer() {
             if [ -n "$cuda_torch_version" ]; then
                 CUDA_VERSION="$cuda_torch_version"
                 FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
-                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})" | tee -a "$LOG_FILE"
+                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})" 
             fi
         else
-            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装" | tee -a "$LOG_FILE"
+            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装" 
             return 1
         fi
     fi
@@ -1899,12 +1901,12 @@ download_flashinfer() {
     local cuda_minor=$(echo "$CUDA_VERSION" | cut -d. -f2)
     
     FORMATTED_CUDA_VERSION="cu${cuda_major}${cuda_minor}"
-    log "INFO" "使用CUDA版本格式: ${FORMATTED_CUDA_VERSION}" | tee -a "$LOG_FILE"
+    log "INFO" "使用CUDA版本格式: ${FORMATTED_CUDA_VERSION}" 
     
     local temp_dir="/tmp/flashinfer_download_$$"
     mkdir -p "$temp_dir"
     
-    log "INFO" "方式一：直接从GitHub Releases下载最新版本..." | tee -a "$LOG_FILE"
+    log "INFO" "方式一：直接从GitHub Releases下载最新版本..." 
     
     local latest_version="0.2.5"
     local base_url="https://github.com/flashinfer-ai/flashinfer/releases/download/v${latest_version}"
@@ -1912,73 +1914,73 @@ download_flashinfer() {
     local download_url="${base_url}/${wheel_file_name}"
     
     if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
-        log "INFO" "使用代理 ${GHPROXY_URL} 下载..." | tee -a "$LOG_FILE"
+        log "INFO" "使用代理 ${GHPROXY_URL} 下载..." 
         download_url="${GHPROXY_URL}/${download_url}"
     fi
     
-    log "INFO" "尝试下载: ${download_url}" | tee -a "$LOG_FILE"
+    log "INFO" "尝试下载: ${download_url}" 
     local wheel_file="${temp_dir}/${wheel_file_name}"
     
     if wget -q --show-progress -O "$wheel_file" "$download_url" || curl -s -L -o "$wheel_file" "$download_url"; then
-        log "SUCCESS" "下载成功，开始安装本地wheel文件" | tee -a "$LOG_FILE"
+        log "SUCCESS" "下载成功，开始安装本地wheel文件" 
         
         if pip install "$wheel_file"; then
-            log "SUCCESS" "flashinfer安装成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "flashinfer安装成功" 
             
             if python -c "import flashinfer" &>/dev/null; then
                 local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null || echo "未知")
-                log "SUCCESS" "flashinfer导入测试成功，版本: $version" | tee -a "$LOG_FILE"
+                log "SUCCESS" "flashinfer导入测试成功，版本: $version" 
                 rm -rf "$temp_dir"
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                 return 0
             else
-                log "WARN" "flashinfer安装成功但导入失败" | tee -a "$LOG_FILE"
+                log "WARN" "flashinfer安装成功但导入失败" 
             fi
         else
-            log "WARN" "本地wheel文件安装失败" | tee -a "$LOG_FILE"
+            log "WARN" "本地wheel文件安装失败" 
         fi
     else
-        log "WARN" "直接下载失败，尝试备用方法" | tee -a "$LOG_FILE"
+        log "WARN" "直接下载失败，尝试备用方法" 
     fi
     
-    log "INFO" "方式二：尝试从flashinfer.ai网站下载..." | tee -a "$LOG_FILE"
+    log "INFO" "方式二：尝试从flashinfer.ai网站下载..." 
     
     local flashinfer_url="https://flashinfer.ai/whl/${FORMATTED_CUDA_VERSION}/${FORMATTED_TORCH_VERSION}/flashinfer-python"
-    log "INFO" "尝试从 ${flashinfer_url} 安装flashinfer..." | tee -a "$LOG_FILE"
+    log "INFO" "尝试从 ${flashinfer_url} 安装flashinfer..." 
     
     if pip install flashinfer-python -f "$flashinfer_url"; then
-        log "SUCCESS" "通过pip -f选项安装flashinfer成功" | tee -a "$LOG_FILE"
+        log "SUCCESS" "通过pip -f选项安装flashinfer成功" 
         
         if python -c "import flashinfer" &>/dev/null; then
             local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null || echo "未知")
-            log "SUCCESS" "flashinfer导入测试成功，版本: $version" | tee -a "$LOG_FILE"
+            log "SUCCESS" "flashinfer导入测试成功，版本: $version" 
             rm -rf "$temp_dir"
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
             return 0
         fi
     else
-        log "WARN" "从flashinfer.ai安装失败" | tee -a "$LOG_FILE"
+        log "WARN" "从flashinfer.ai安装失败" 
     fi
     
     rm -rf "$temp_dir"
     
-    log "INFO" "方式三：从源代码编译安装..." | tee -a "$LOG_FILE"
+    log "INFO" "方式三：从源代码编译安装..." 
     
     local temp_dir="/tmp/flashinfer_build_$$"
     mkdir -p "$temp_dir"
     cd "$temp_dir" || return 1
     
-    log "INFO" "克隆flashinfer仓库..." | tee -a "$LOG_FILE"
+    log "INFO" "克隆flashinfer仓库..." 
     local repo_url="https://github.com/flashinfer-ai/flashinfer.git"
     
     if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
         repo_url="${GHPROXY_URL}/${repo_url}"
-        log "INFO" "使用代理URL: $repo_url" | tee -a "$LOG_FILE"
+        log "INFO" "使用代理URL: $repo_url" 
     fi
     
     if git clone --recursive "$repo_url"; then
         cd flashinfer || return 1
-        log "INFO" "开始编译安装flashinfer..." | tee -a "$LOG_FILE"
+        log "INFO" "开始编译安装flashinfer..." 
         
         # 设置编译参数
         export MAX_JOBS="$MAX_JOBS"
@@ -1987,23 +1989,23 @@ download_flashinfer() {
         fi
         
         if pip install -e . -v; then
-            log "SUCCESS" "flashinfer从源码安装成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "flashinfer从源码安装成功" 
             
             if python -c "import flashinfer" &>/dev/null; then
                 local version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null || echo "未知")
-                log "SUCCESS" "flashinfer导入测试成功，版本: $version" | tee -a "$LOG_FILE"
+                log "SUCCESS" "flashinfer导入测试成功，版本: $version" 
                 cd "$INSTALL_DIR" || return 1
                 rm -rf "$temp_dir"
                 FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
                 return 0
             else
-                log "WARN" "flashinfer安装成功但导入失败" | tee -a "$LOG_FILE"
+                log "WARN" "flashinfer安装成功但导入失败" 
             fi
         else
-            log "ERROR" "flashinfer从源码安装失败" | tee -a "$LOG_FILE"
+            log "ERROR" "flashinfer从源码安装失败" 
         fi
     else
-        log "ERROR" "克隆flashinfer仓库失败" | tee -a "$LOG_FILE"
+        log "ERROR" "克隆flashinfer仓库失败" 
     fi
     
     cd "$INSTALL_DIR" || return 1
@@ -2019,42 +2021,42 @@ make_dev_install() {
     
 
     if [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${RED}× 目录 $INSTALL_DIR 不存在${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× 目录 $INSTALL_DIR 不存在${NC}" 
         return 1
     fi
     
     if ! cd "$INSTALL_DIR"; then
-        log "ERROR" "无法进入目录 $INSTALL_DIR" | tee -a "$LOG_FILE"
-        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}" | tee -a "$LOG_FILE"
+        log "ERROR" "无法进入目录 $INSTALL_DIR" 
+        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}" 
         return 1
     fi
                 
     if ! command_exists make; then
-        echo -e "${RED}× make命令不存在，尝试安装...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× make命令不存在，尝试安装...${NC}" 
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential
         
         if ! command_exists make; then
-            echo -e "${RED}× 无法安装make工具，跳过make dev_install步骤${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}尝试使用pip直接安装...${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× 无法安装make工具，跳过make dev_install步骤${NC}" 
+            echo -e "${YELLOW}尝试使用pip直接安装...${NC}" 
             
             if pip install -e .; then
-                echo -e "${GREEN}✓ 使用pip安装成功${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ 使用pip安装成功${NC}" 
                 return 0
             else
-                echo -e "${RED}× 使用pip安装也失败${NC}" | tee -a "$LOG_FILE"
-                echo -e "${YELLOW}您可能需要手动执行安装:${NC}" | tee -a "$LOG_FILE"
-                echo -e "${YELLOW}1. 安装build-essential${NC}" | tee -a "$LOG_FILE"
-                echo -e "${YELLOW}2. 进入 $INSTALL_DIR 目录${NC}" | tee -a "$LOG_FILE"
-                echo -e "${YELLOW}3. 执行 make dev_install 或 pip install -e .${NC}" | tee -a "$LOG_FILE"
+                echo -e "${RED}× 使用pip安装也失败${NC}" 
+                echo -e "${YELLOW}您可能需要手动执行安装:${NC}" 
+                echo -e "${YELLOW}1. 安装build-essential${NC}" 
+                echo -e "${YELLOW}2. 进入 $INSTALL_DIR 目录${NC}" 
+                echo -e "${YELLOW}3. 执行 make dev_install 或 pip install -e .${NC}" 
                 return 1
             fi
         fi
     fi
     
 
-    echo -e "${YELLOW}开始执行make dev_install（这可能需要一些时间）...${NC}" | tee -a "$LOG_FILE"
-    echo -e "${CYAN}编译过程中可能会显示一些警告，这是正常现象${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}开始执行make dev_install（这可能需要一些时间）...${NC}" 
+    echo -e "${CYAN}编译过程中可能会显示一些警告，这是正常现象${NC}" 
     
     local make_output=""
     local make_error_file="$INSTALL_DIR/make_error.log"
@@ -2062,13 +2064,13 @@ make_dev_install() {
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_error_file"
     
     if make_output=$(make dev_install 2>&1); then
-        echo -e "${GREEN}✓ make dev_install执行成功${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ make dev_install执行成功${NC}" 
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_error_file"
         return 0
     else
         local exit_code=$?
-        echo -e "${RED}× make dev_install执行失败 (错误码: $exit_code)${NC}" | tee -a "$LOG_FILE"
-        echo -e "${YELLOW}编译错误已保存到 $make_error_file${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× make dev_install执行失败 (错误码: $exit_code)${NC}" 
+        echo -e "${YELLOW}编译错误已保存到 $make_error_file${NC}" 
         
 
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行失败 (错误码: $exit_code)" >> "$make_error_file"
@@ -2077,19 +2079,19 @@ make_dev_install() {
         echo "==================================================" >> "$make_error_file"
         
 
-        echo -e "${YELLOW}错误摘要:${NC}" | tee -a "$LOG_FILE"
-        echo "$make_output" | tail -n 15 | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}错误摘要:${NC}" 
+        echo "$make_output" | tail -n 15 
         
-        echo -e "${YELLOW}尝试使用pip直接安装...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}尝试使用pip直接安装...${NC}" 
         if pip install -e .; then
-            echo -e "${GREEN}✓ 使用pip安装成功${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ 使用pip安装成功${NC}" 
             return 0
         else
-            echo -e "${RED}× 使用pip安装也失败${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}您可能需要手动执行安装:${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}1. 安装build-essential${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}2. 进入 $INSTALL_DIR 目录${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}3. 执行 make dev_install 或 pip install -e .${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× 使用pip安装也失败${NC}" 
+            echo -e "${YELLOW}您可能需要手动执行安装:${NC}" 
+            echo -e "${YELLOW}1. 安装build-essential${NC}" 
+            echo -e "${YELLOW}2. 进入 $INSTALL_DIR 目录${NC}" 
+            echo -e "${YELLOW}3. 执行 make dev_install 或 pip install -e .${NC}" 
         fi
                 
     fi
@@ -2097,11 +2099,11 @@ make_dev_install() {
 
 # 12. 更新libstdc++6
 update_libstdcpp6() {
-    echo -e "${BLUE}[步骤 13] 更新libstdc++6${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 13] 更新libstdc++6${NC}" 
     
 
     if ! command_exists add-apt-repository; then
-        echo -e "${YELLOW}add-apt-repository命令不存在，尝试安装...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}add-apt-repository命令不存在，尝试安装...${NC}" 
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
     fi
@@ -2110,84 +2112,84 @@ update_libstdcpp6() {
         if add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
            DEBIAN_FRONTEND=noninteractive apt-get update -y && \
            DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade libstdc++6; then
-            echo -e "${GREEN}✓ libstdc++6更新成功${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ libstdc++6更新成功${NC}" 
             return 0
         else
-            echo -e "${RED}× libstdc++6更新失败${NC}" | tee -a "$LOG_FILE"
-            echo -e "${YELLOW}将继续安装过程，但可能影响某些运行时功能${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× libstdc++6更新失败${NC}" 
+            echo -e "${YELLOW}将继续安装过程，但可能影响某些运行时功能${NC}" 
             return 1
         fi
     else
-        echo -e "${RED}× 无法安装add-apt-repository工具，跳过libstdc++6更新${NC}" | tee -a "$LOG_FILE"
-        echo -e "${YELLOW}将继续安装过程，但可能影响某些运行时功能${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× 无法安装add-apt-repository工具，跳过libstdc++6更新${NC}" 
+        echo -e "${YELLOW}将继续安装过程，但可能影响某些运行时功能${NC}" 
         return 1
     fi
 }
 
 # 13. 安装libstdcxx-ng
 install_libstdcxx_ng() {
-    echo -e "${BLUE}[步骤 14] 安装libstdcxx-ng${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 14] 安装libstdcxx-ng${NC}" 
     if retry_command_with_logging "conda install -c conda-forge libstdcxx-ng -y" 300; then
-        echo -e "${GREEN}✓ libstdcxx-ng安装成功${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ libstdcxx-ng安装成功${NC}" 
         return 0
     else
-        echo -e "${RED}× libstdcxx-ng安装失败${NC}" | tee -a "$LOG_FILE"
-        echo -e "${YELLOW}将继续安装过程，但可能影响某些运行时功能${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× libstdcxx-ng安装失败${NC}" 
+        echo -e "${YELLOW}将继续安装过程，但可能影响某些运行时功能${NC}" 
         return 1
     fi
 }
 
 # 14. 检测版本信息
 check_versions() {
-    echo -e "${BLUE}===== 安装组件版本检查 =====${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}===== 安装组件版本检查 =====${NC}" 
     
 
     cd "$INSTALL_DIR" || return 1
     
-    echo -e "${YELLOW}● KTransformers 安装信息${NC}" | tee -a "$LOG_FILE"
-    echo -e "  ○ 安装路径: ${GREEN}${INSTALL_DIR}${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}● KTransformers 安装信息${NC}" 
+    echo -e "  ○ 安装路径: ${GREEN}${INSTALL_DIR}${NC}" 
     echo -e "${BLUE}● Conda基础路径: ${GREEN}${CONDA_BASE_DIR:-将在安装时确定}${NC}" # Show placeholder
-    echo -e "${BLUE}● Conda环境名称: ${GREEN}${ENV_NAME}${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}● GPU设备: ${GREEN}${gpu_info}${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}● CUDA版本: ${GREEN}${cuda_info}${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}● USE_NUMA: ${GREEN}$([ $USE_NUMA -eq 1 ] && echo "启用" || echo "禁用")${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}● 编译线程: ${GREEN}${MAX_JOBS}${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}● Conda环境名称: ${GREEN}${ENV_NAME}${NC}" 
+    echo -e "${BLUE}● GPU设备: ${GREEN}${gpu_info}${NC}" 
+    echo -e "${BLUE}● CUDA版本: ${GREEN}${cuda_info}${NC}" 
+    echo -e "${BLUE}● USE_NUMA: ${GREEN}$([ $USE_NUMA -eq 1 ] && echo "启用" || echo "禁用")${NC}" 
+    echo -e "${BLUE}● 编译线程: ${GREEN}${MAX_JOBS}${NC}" 
     
 
     if python -c "import ktransformers" &>/dev/null; then
         local ktrans_version=$(python -c "import ktransformers; print(ktransformers.__version__)" 2>/dev/null)
-        echo -e "  ○ KTransformers版本: ${GREEN}${ktrans_version:-已安装}${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ KTransformers版本: ${GREEN}${ktrans_version:-已安装}${NC}" 
     else
-        echo -e "  ○ KTransformers版本: ${RED}未安装或无法导入${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ KTransformers版本: ${RED}未安装或无法导入${NC}" 
     fi
     
 
     if python -c "import torch" &>/dev/null; then
         local torch_version=$(python -c "import torch; print(torch.__version__)" 2>/dev/null)
         local cuda_available=$(python -c "import torch; print('可用' if torch.cuda.is_available() else '不可用')" 2>/dev/null)
-        echo -e "  ○ PyTorch版本: ${GREEN}${torch_version}${NC} (CUDA: ${GREEN}${cuda_available}${NC})" | tee -a "$LOG_FILE"
+        echo -e "  ○ PyTorch版本: ${GREEN}${torch_version}${NC} (CUDA: ${GREEN}${cuda_available}${NC})" 
         
 
         if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" &>/dev/null; then
             local gpu_name=$(python -c "import torch; print(torch.cuda.get_device_name(0))" 2>/dev/null)
-            echo -e "  ○ GPU设备: ${GREEN}${gpu_name}${NC}" | tee -a "$LOG_FILE"
+            echo -e "  ○ GPU设备: ${GREEN}${gpu_name}${NC}" 
             
 
             local cuda_version=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null)
-            echo -e "  ○ CUDA版本: ${GREEN}${cuda_version}${NC}" | tee -a "$LOG_FILE"
+            echo -e "  ○ CUDA版本: ${GREEN}${cuda_version}${NC}" 
         fi
     else
-        echo -e "  ○ PyTorch版本: ${RED}未安装或无法导入${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ PyTorch版本: ${RED}未安装或无法导入${NC}" 
     fi
     
-    echo -e "${YELLOW}● 加速组件${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}● 加速组件${NC}" 
     
 
     if python -c "import flashinfer" &>/dev/null; then
         local flashinfer_version=$(python -c "import flashinfer; print(flashinfer.__version__)" 2>/dev/null)
-        echo -e "  ○ FlashInfer版本: ${GREEN}${flashinfer_version:-已安装}${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ FlashInfer版本: ${GREEN}${flashinfer_version:-已安装}${NC}" 
     else
-        echo -e "  ○ FlashInfer版本: ${RED}未安装或无法导入${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ FlashInfer版本: ${RED}未安装或无法导入${NC}" 
     fi
     
 
@@ -2195,36 +2197,36 @@ check_versions() {
         local flash_attn_version=$(python -c "import flash_attn; print(flash_attn.__version__)" 2>/dev/null)
         echo -e "  ○ Flash Attention版本: ${GREEN}${flash_attn_version:-已安装}${NC}"
     else
-        echo -e "  ○ Flash Attention版本: ${RED}未安装或无法导入${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ Flash Attention版本: ${RED}未安装或无法导入${NC}" 
     fi
     
 
     if [ $USE_NUMA -eq 1 ]; then
-        echo -e "  ○ USE_NUMA环境变量: ${GREEN}已启用${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ USE_NUMA环境变量: ${GREEN}已启用${NC}" 
     else
-        echo -e "  ○ USE_NUMA环境变量: ${YELLOW}未启用${NC}" | tee -a "$LOG_FILE"
+        echo -e "  ○ USE_NUMA环境变量: ${YELLOW}未启用${NC}" 
     fi
     
 
-    echo -e "  ○ 编译最大线程数: ${GREEN}${MAX_JOBS}${NC}" | tee -a "$LOG_FILE"
+    echo -e "  ○ 编译最大线程数: ${GREEN}${MAX_JOBS}${NC}" 
     
 
-    echo -e "\n${GREEN}✓ KTransformers安装完成!${NC}" | tee -a "$LOG_FILE"
-    echo -e "${YELLOW}您可以通过以下命令进入环境:${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}  conda activate ${ENV_NAME}${NC}" | tee -a "$LOG_FILE"
-    echo -e "${YELLOW}然后运行示例:${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}  cd ${INSTALL_DIR}/examples${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}  python run_demo.py${NC}" | tee -a "$LOG_FILE"
-    echo -e "\n${GREEN}祝您使用愉快!${NC}\n" | tee -a "$LOG_FILE"
+    echo -e "\n${GREEN}✓ KTransformers安装完成!${NC}" 
+    echo -e "${YELLOW}您可以通过以下命令进入环境:${NC}" 
+    echo -e "${BLUE}  conda activate ${ENV_NAME}${NC}" 
+    echo -e "${YELLOW}然后运行示例:${NC}" 
+    echo -e "${BLUE}  cd ${INSTALL_DIR}/examples${NC}" 
+    echo -e "${BLUE}  python run_demo.py${NC}" 
+    echo -e "\n${GREEN}祝您使用愉快!${NC}\n" 
 }
 
 # 5. 激活环境并进入仓库
 activate_conda_env() {
-    echo -e "${BLUE}[步骤 5] 激活conda环境${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 5] 激活conda环境${NC}" 
 
     # 获取conda基础路径 (确保在之前的步骤中已设置)
     if [ -z "$CONDA_BASE_DIR" ]; then
-        log "ERROR" "CONDA_BASE_DIR 未设置，无法激活环境" | tee -a "$LOG_FILE"
+        log "ERROR" "CONDA_BASE_DIR 未设置，无法激活环境" 
         return 1
     fi
 
@@ -2233,7 +2235,7 @@ activate_conda_env() {
     local activate_script_path="$original_script_dir/activate_env.sh"
 
     # 创建激活脚本
-    echo -e "${YELLOW}创建环境激活脚本: ${activate_script_path}${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}创建环境激活脚本: ${activate_script_path}${NC}" 
     cat > "$activate_script_path" << EOF
 #!/bin/bash
 # KTransformers 环境激活脚本 (由安装程序生成)
@@ -2270,41 +2272,41 @@ echo "提示: 可以直接使用 'conda activate ${ENV_NAME}' 命令激活环境
 EOF
 
     chmod +x "$activate_script_path"
-    log "INFO" "激活脚本已创建: $activate_script_path" | tee -a "$LOG_FILE"
+    log "INFO" "激活脚本已创建: $activate_script_path" 
 
     # 尝试在当前shell source conda.sh 并激活
     if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then
-        log "INFO" "尝试在当前shell中激活环境 $ENV_NAME ..." | tee -a "$LOG_FILE"
+        log "INFO" "尝试在当前shell中激活环境 $ENV_NAME ..." 
         # 使用点号(.)在当前shell执行
         . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"
 
         # 激活环境
         if conda activate "$ENV_NAME"; then
-            log "SUCCESS" "✓ 成功在当前shell激活环境 $ENV_NAME" | tee -a "$LOG_FILE"
+            log "SUCCESS" "✓ 成功在当前shell激活环境 $ENV_NAME" 
              # 验证激活状态
              if [[ "$CONDA_DEFAULT_ENV" == "$ENV_NAME" ]] || [[ "$CONDA_PREFIX" == *"/envs/$ENV_NAME" ]]; then
-                 log "SUCCESS" "✓ 环境激活状态已确认" | tee -a "$LOG_FILE"
+                 log "SUCCESS" "✓ 环境激活状态已确认" 
                  return 0
              else
-                 log "WARN" "conda activate命令执行成功，但环境似乎未完全激活 (CONDA_DEFAULT_ENV='$CONDA_DEFAULT_ENV', CONDA_PREFIX='$CONDA_PREFIX')" | tee -a "$LOG_FILE"
-                 log "WARN" "这可能是shell环境问题，但依赖安装应该仍可进行。" | tee -a "$LOG_FILE"
+                 log "WARN" "conda activate命令执行成功，但环境似乎未完全激活 (CONDA_DEFAULT_ENV='$CONDA_DEFAULT_ENV', CONDA_PREFIX='$CONDA_PREFIX')" 
+                 log "WARN" "这可能是shell环境问题，但依赖安装应该仍可进行。" 
                  return 0
              fi
         else
-            log "ERROR" "在当前shell中执行 'conda activate $ENV_NAME' 失败" | tee -a "$LOG_FILE"
-            log "INFO" "请尝试手动运行: source ${activate_script_path}" | tee -a "$LOG_FILE"
+            log "ERROR" "在当前shell中执行 'conda activate $ENV_NAME' 失败" 
+            log "INFO" "请尝试手动运行: source ${activate_script_path}" 
             return 1 # 激活失败，后续步骤可能出错
         fi
     else
-        log "WARN" "找不到 ${CONDA_BASE_DIR}/etc/profile.d/conda.sh，无法自动在当前shell激活环境" | tee -a "$LOG_FILE"
+        log "WARN" "找不到 ${CONDA_BASE_DIR}/etc/profile.d/conda.sh，无法自动在当前shell激活环境" 
         # 尝试直接使用conda命令路径
         export PATH="${CONDA_BASE_DIR}/bin:$PATH"
         if "$CONDA_BASE_DIR/bin/conda" activate "$ENV_NAME"; then
-             log "WARN" "通过直接调用conda activate成功，但这可能不会完全设置环境。" | tee -a "$LOG_FILE"
+             log "WARN" "通过直接调用conda activate成功，但这可能不会完全设置环境。" 
              return 0 # 认为成功以便继续
         else
-             log "ERROR" "无法自动激活环境 $ENV_NAME" | tee -a "$LOG_FILE"
-             log "INFO" "请手动运行: source ${activate_script_path}" | tee -a "$LOG_FILE"
+             log "ERROR" "无法自动激活环境 $ENV_NAME" 
+             log "INFO" "请手动运行: source ${activate_script_path}" 
              return 1
         fi
     fi
@@ -2331,29 +2333,29 @@ estimate_git_repo_size() {
     rm -f "$temp_file"
     
 
-    echo "$estimated_size" | tee -a "$LOG_FILE"
+    echo "$estimated_size" 
 }
 
 # 更新git子模块
 update_git_submodules_with_progress() {
-    log "INFO" "更新git子模块，克隆和更新仓库" | tee -a "$LOG_FILE"
+    log "INFO" "更新git子模块，克隆和更新仓库" 
     
 
     if [ $USE_GHPROXY -eq 1 ]; then
 
         if [ -f ".gitmodules" ] && ! grep -q "$GHPROXY_URL" .gitmodules; then
-            log "INFO" "修改.gitmodules使用ghfast.top代理" | tee -a "$LOG_FILE"
+            log "INFO" "修改.gitmodules使用ghfast.top代理" 
             sed -i.bak "s|https://github.com|${GHPROXY_URL}/https://github.com|g" .gitmodules
-            log "SUCCESS" "已为子模块添加ghfast.top代理前缀" | tee -a "$LOG_FILE"
+            log "SUCCESS" "已为子模块添加ghfast.top代理前缀" 
             
 
             git submodule sync
-            log "INFO" "已同步子模块配置" | tee -a "$LOG_FILE"
+            log "INFO" "已同步子模块配置" 
             
 
-            log "INFO" "配置git全局设置，使用ghfast.top代理" | tee -a "$LOG_FILE"
+            log "INFO" "配置git全局设置，使用ghfast.top代理" 
             git config --global url."${GHPROXY_URL}/https://github.com/".insteadOf "https://github.com/"
-            log "SUCCESS" "git全局配置已更新" | tee -a "$LOG_FILE"
+            log "SUCCESS" "git全局配置已更新" 
         fi
     fi
     
@@ -2361,16 +2363,16 @@ update_git_submodules_with_progress() {
     local total_submodules=$(git config --file .gitmodules --get-regexp "^submodule\..*\.path$" | wc -l)
     
     if [ "$total_submodules" -eq 0 ]; then
-        log "WARN" "未检测到git子模块" | tee -a "$LOG_FILE"
+        log "WARN" "未检测到git子模块" 
         return 0
     fi
     
-    log "INFO" "检测到 $total_submodules 个git子模块" | tee -a "$LOG_FILE"
+    log "INFO" "检测到 $total_submodules 个git子模块" 
     
 
     if [ $DEBUG_MODE -eq 1 ]; then
-        log "DEBUG" "当前.gitmodules内容:" | tee -a "$LOG_FILE"
-        cat .gitmodules | tee -a "$LOG_FILE"
+        log "DEBUG" "当前.gitmodules内容:" 
+        cat .gitmodules 
     fi
     
 
@@ -2381,12 +2383,12 @@ update_git_submodules_with_progress() {
 
         export GIT_TRACE=1
         export GIT_CURL_VERBOSE=1
-        log "DEBUG" "Git调试模式已启用，将显示详细日志" | tee -a "$LOG_FILE"
+        log "DEBUG" "Git调试模式已启用，将显示详细日志" 
     elif [ $DEBUG_MODE -eq 1 ]; then
-        log "DEBUG" "Git调试模式已禁用，避免过多日志输出" | tee -a "$LOG_FILE"
+        log "DEBUG" "Git调试模式已禁用，避免过多日志输出" 
     fi
     
-    log "INFO" "开始更新子模块，这可能需要一些时间..." | tee -a "$LOG_FILE"
+    log "INFO" "开始更新子模块，这可能需要一些时间..." 
     
 
     if [ $DEBUG_MODE -eq 1 ]; then
@@ -2404,36 +2406,36 @@ update_git_submodules_with_progress() {
 
         unset GIT_TRACE
         unset GIT_CURL_VERBOSE
-        log "DEBUG" "Git调试模式已重置" | tee -a "$LOG_FILE"
+        log "DEBUG" "Git调试模式已重置" 
     elif [ $DEBUG_MODE -eq 1 ]; then
-        log "DEBUG" "Git子模块更新完成" | tee -a "$LOG_FILE"
+        log "DEBUG" "Git子模块更新完成" 
     fi
     
     if [ $exit_code -eq 0 ]; then
-        log "SUCCESS" "git子模块克隆和更新成功" | tee -a "$LOG_FILE"
+        log "SUCCESS" "git子模块克隆和更新成功" 
 
         rm -f "$tmpfile"
         
 
         if [ -f ".gitmodules.bak" ] && [ $USE_GHPROXY -eq 1 ]; then
-            log "INFO" "恢复原始.gitmodules文件" | tee -a "$LOG_FILE"
+            log "INFO" "恢复原始.gitmodules文件" 
             mv .gitmodules.bak .gitmodules
             git submodule sync
             
 
-            log "INFO" "恢复git全局配置" | tee -a "$LOG_FILE"
+            log "INFO" "恢复git全局配置" 
             git config --global --unset url."${GHPROXY_URL}/https://github.com/".insteadOf
         fi
         
         return 0
     else
-        log "ERROR" "git子模块更新失败" | tee -a "$LOG_FILE"
-        log "DEBUG" "错误详情: $(cat "$tmpfile")" | tee -a "$LOG_FILE"
+        log "ERROR" "git子模块更新失败" 
+        log "DEBUG" "错误详情: $(cat "$tmpfile")" 
         
 
-        log "WARN" "尝试使用非并行方式更新子模块..." | tee -a "$LOG_FILE"
+        log "WARN" "尝试使用非并行方式更新子模块..." 
         if git submodule update --init --recursive --jobs=1 --progress; then
-            log "SUCCESS" "使用非并行方式更新子模块成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "使用非并行方式更新子模块成功" 
             rm -f "$tmpfile"
             return 0
         fi
@@ -2446,10 +2448,10 @@ update_git_submodules_with_progress() {
 # 安装Flash Attention
 install_flash_attn() {
     
-    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 9] 安装Flash Attention${NC}" 
 
     if [ -z "$FORMATTED_CUDA_VERSION" ] || [ -z "$FORMATTED_TORCH_VERSION" ]; then
-        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..." | tee -a "$LOG_FILE"
+        log "WARN" "CUDA或PyTorch版本信息缺失，尝试重新检测..." 
 
         local torch_version=$(python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null)
         if [ -n "$torch_version" ]; then
@@ -2460,17 +2462,17 @@ install_flash_attn() {
             if [ -n "$cuda_torch_version" ]; then
                 CUDA_VERSION="$cuda_torch_version"
                 FORMATTED_CUDA_VERSION="cu$(echo $cuda_torch_version | sed 's/\.//')"
-                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})" | tee -a "$LOG_FILE"
+                log "SUCCESS" "从PyTorch检测到CUDA版本: ${CUDA_VERSION} (${FORMATTED_CUDA_VERSION})" 
             fi
         else
-            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装" | tee -a "$LOG_FILE"
+            log "ERROR" "无法检测到PyTorch版本，请确保PyTorch已正确安装" 
             return 1
         fi
     fi
 
     local python_version=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
     if [ -z "$python_version" ]; then
-        log "ERROR" "无法检测到Python版本" | tee -a "$LOG_FILE"
+        log "ERROR" "无法检测到Python版本" 
         return 1
     fi
 
@@ -2479,13 +2481,13 @@ install_flash_attn() {
     local cuda_major=$(echo "$CUDA_VERSION" | cut -d. -f1)
     FORMATTED_CUDA_VERSION="cu${cuda_major}"
 
-    log "INFO" "检测到环境信息:" | tee -a "$LOG_FILE"
-    log "INFO" "- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})" | tee -a "$LOG_FILE"
-    log "INFO" "- 将使用CUDA大版本: ${FORMATTED_CUDA_VERSION} 进行安装" | tee -a "$LOG_FILE"
-    log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})" | tee -a "$LOG_FILE"
-    log "INFO" "- Python版本: ${python_version}" | tee -a "$LOG_FILE"
+    log "INFO" "检测到环境信息:" 
+    log "INFO" "- CUDA版本: ${actual_cuda_version} (${actual_formatted_cuda})" 
+    log "INFO" "- 将使用CUDA大版本: ${FORMATTED_CUDA_VERSION} 进行安装" 
+    log "INFO" "- PyTorch版本: ${TORCH_VERSION} (${FORMATTED_TORCH_VERSION})" 
+    log "INFO" "- Python版本: ${python_version}" 
 
-    log "INFO" "尝试安装预编译的Flash Attention..." | tee -a "$LOG_FILE"
+    log "INFO" "尝试安装预编译的Flash Attention..." 
 
     local flash_attn_version="2.7.4.post1"
     local base_url="https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}"
@@ -2494,59 +2496,59 @@ install_flash_attn() {
     local flash_attn_url
     if [ $USE_GHPROXY -eq 1 ] && [ -n "$GHPROXY_URL" ]; then
         flash_attn_url="${GHPROXY_URL}/https://github.com/Dao-AILab/flash-attention/releases/download/v${flash_attn_version}/${package_name}"
-        log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}" | tee -a "$LOG_FILE"
+        log "INFO" "使用代理下载Flash Attention: ${flash_attn_url}" 
     else
         flash_attn_url="${base_url}/${package_name}"
-        log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}" | tee -a "$LOG_FILE"
+        log "INFO" "直接从GitHub下载Flash Attention: ${flash_attn_url}" 
     fi
 
-    log "INFO" "尝试下载: ${flash_attn_url}" | tee -a "$LOG_FILE"
+    log "INFO" "尝试下载: ${flash_attn_url}" 
 
     if pip install "${flash_attn_url}"; then
         log "SUCCESS" "Flash Attention预编译包安装成功"
 
         if python -c "import flash_attn; print('Flash Attention版本:', flash_attn.__version__)" 2>/dev/null; then
-            log "SUCCESS" "Flash Attention导入测试成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "Flash Attention导入测试成功" 
             FORMATTED_CUDA_VERSION="$actual_formatted_cuda"
             return 0
         else
-            log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..." | tee -a "$LOG_FILE"
+            log "WARN" "Flash Attention安装成功但导入失败，尝试从源码安装..." 
         fi
     else
-        log "WARN" "预编译包安装失败，尝试从源码安装..." | tee -a "$LOG_FILE"
+        log "WARN" "预编译包安装失败，尝试从源码安装..." 
     fi
 
-    log "INFO" "准备从源码安装Flash Attention..." | tee -a "$LOG_FILE"
+    log "INFO" "准备从源码安装Flash Attention..." 
 
-    log "INFO" "安装ninja构建工具..." | tee -a "$LOG_FILE"
+    log "INFO" "安装ninja构建工具..." 
     pip uninstall -y ninja && pip install ninja
 
-    log "INFO" "设置编译环境变量，使用${MAX_JOBS}个编译线程..." | tee -a "$LOG_FILE"
+    log "INFO" "设置编译环境变量，使用${MAX_JOBS}个编译线程..." 
     export MAX_JOBS="$MAX_JOBS"
 
     # 克隆并编译
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || {
-        log "ERROR" "无法创建临时目录" | tee -a "$LOG_FILE"
+        log "ERROR" "无法创建临时目录" 
         return 1
     }
 
     if git clone https://github.com/Dao-AILab/flash-attention.git; then
         cd flash-attention || {
-            log "ERROR" "无法进入flash-attention目录" | tee -a "$LOG_FILE"
+            log "ERROR" "无法进入flash-attention目录" 
             return 1
         }
 
-        log "INFO" "使用ninja编译并安装..." | tee -a "$LOG_FILE"
+        log "INFO" "使用ninja编译并安装..." 
         if python setup.py install --use_ninja; then
-            log "SUCCESS" "Flash Attention从源码编译安装成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "Flash Attention从源码编译安装成功" 
             return 0
         else
-            log "ERROR" "Flash Attention从源码编译安装失败" | tee -a "$LOG_FILE"
+            log "ERROR" "Flash Attention从源码编译安装失败" 
             return 1
         fi
     else
-        log "ERROR" "克隆Flash Attention仓库失败" | tee -a "$LOG_FILE"
+        log "ERROR" "克隆Flash Attention仓库失败" 
         return 1
     fi
 }
@@ -2556,21 +2558,21 @@ validate_conda_path() {
     local expected_path="$1"
     local detected_path=$(which conda 2>/dev/null)
     
-    echo -e "${YELLOW}验证conda安装路径...${NC}" | tee -a "$LOG_FILE"
-    echo -e "${YELLOW}预期路径: $expected_path/bin/conda${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}验证conda安装路径...${NC}" 
+    echo -e "${YELLOW}预期路径: $expected_path/bin/conda${NC}" 
     
     if [ -z "$detected_path" ]; then
-        echo -e "${RED}× 无法在PATH中找到conda${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× 无法在PATH中找到conda${NC}" 
         # 添加到当前PATH
         export PATH="$expected_path/bin:$PATH"
-        echo -e "${YELLOW}已添加 $expected_path/bin 到当前PATH${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}已添加 $expected_path/bin 到当前PATH${NC}" 
     elif [ "$detected_path" != "$expected_path/bin/conda" ]; then
-        echo -e "${YELLOW}检测到的conda路径与预期不符: $detected_path${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}检测到的conda路径与预期不符: $detected_path${NC}" 
         
         # 修复bashrc中的路径
         for bashrc in "/root/.bashrc" "/home/$non_root_user/.bashrc"; do
             if [ -f "$bashrc" ]; then
-                echo -e "${YELLOW}修正 $bashrc 中的conda路径引用${NC}" | tee -a "$LOG_FILE"
+                echo -e "${YELLOW}修正 $bashrc 中的conda路径引用${NC}" 
                 sed -i -E "s|^export PATH=.*conda.*:|export PATH=$expected_path/bin:\$PATH:|g" "$bashrc"
                 sed -i -E "s|^[.] \".*conda/etc/profile.d/conda.sh\"$|. \"$expected_path/etc/profile.d/conda.sh\"|g" "$bashrc"
             fi
@@ -2578,34 +2580,34 @@ validate_conda_path() {
         
         # 重新添加到PATH
         export PATH="$expected_path/bin:$PATH"
-        echo -e "${GREEN}✓ conda路径已修正${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ conda路径已修正${NC}" 
     else
-        echo -e "${GREEN}✓ conda路径正确: $detected_path${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ conda路径正确: $detected_path${NC}" 
     fi
 }
 
 
 # 检查Git镜像站点
 check_best_github_site() {
-    log "INFO" "检查GitHub连接配置..." | tee -a "$LOG_FILE"
+    log "INFO" "检查GitHub连接配置..." 
     
     # 根据用户选择设置代理
     if [ $USE_GHPROXY -eq 1 ]; then
-        log "INFO" "使用国内代理服务加速GitHub访问" | tee -a "$LOG_FILE"
-        log "SUCCESS" "已配置代理服务器: $GHPROXY_URL" | tee -a "$LOG_FILE"
+        log "INFO" "使用国内代理服务加速GitHub访问" 
+        log "SUCCESS" "已配置代理服务器: $GHPROXY_URL" 
         
         # 如果存在.gitmodules文件，则修改其中的URL
         if [ -f ".gitmodules" ]; then
-            log "INFO" "为git子模块添加代理前缀" | tee -a "$LOG_FILE"
+            log "INFO" "为git子模块添加代理前缀" 
             sed -i.bak "s|https://github.com|${GHPROXY_URL}/https://github.com|g" .gitmodules
-            log "SUCCESS" "已为子模块添加代理前缀" | tee -a "$LOG_FILE"
+            log "SUCCESS" "已为子模块添加代理前缀" 
         fi
         
         # 配置git全局代理
-        log "DEBUG" "配置git全局代理设置" | tee -a "$LOG_FILE"
+        log "DEBUG" "配置git全局代理设置" 
         git config --global url."${GHPROXY_URL}/https://github.com/".insteadOf "https://github.com/"
     else
-        log "INFO" "将直接连接GitHub，不使用代理" | tee -a "$LOG_FILE"
+        log "INFO" "将直接连接GitHub，不使用代理" 
     fi
     
     return 0
@@ -2613,20 +2615,20 @@ check_best_github_site() {
 
 # 安装Python依赖
 install_python_deps() {
-    echo -e "${BLUE}[步骤 11] 安装Python依赖${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 11] 安装Python依赖${NC}" 
     
     cd "$INSTALL_DIR" || {
-        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× 无法进入 $INSTALL_DIR 目录${NC}" 
         return 1
     }
     
-    echo -e "${YELLOW}在 $INSTALL_DIR 中递归查找 requirements.txt 文件...${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}在 $INSTALL_DIR 中递归查找 requirements.txt 文件...${NC}" 
     
     # 递归查找所有 requirements.txt 文件，排除 /third_party 目录
     local req_files=($(find . -name "requirements.txt" -type f -not -path "*/third_party/*"))
     
     if [ ${#req_files[@]} -gt 0 ]; then
-        echo -e "${GREEN}✓ 找到 ${#req_files[@]} 个 requirements.txt 文件${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ 找到 ${#req_files[@]} 个 requirements.txt 文件${NC}" 
         
 
         IFS=$'\n' req_files=($(sort <<<"${req_files[*]}"))
@@ -2634,48 +2636,48 @@ install_python_deps() {
         
 
         if [ $DEBUG_MODE -eq 1 ]; then
-            echo -e "${CYAN}[DEBUG] 找到的 requirements.txt 文件:${NC}" | tee -a "$LOG_FILE"
+            echo -e "${CYAN}[DEBUG] 找到的 requirements.txt 文件:${NC}" 
             for req_file in "${req_files[@]}"; do
-                echo -e "${CYAN}[DEBUG]   - $req_file${NC}" | tee -a "$LOG_FILE"
+                echo -e "${CYAN}[DEBUG]   - $req_file${NC}" 
             done
         fi
         
         #忽略 torch 相关依赖
         for req_file in "${req_files[@]}"; do
-            echo -e "${YELLOW}安装依赖: $req_file (忽略torch)${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}安装依赖: $req_file (忽略torch)${NC}" 
 
             local temp_req=$(mktemp)
             grep -v "torch\|pytorch" "$req_file" > "$temp_req"
             
             if pip install -r "$temp_req"; then
-                echo -e "${GREEN}✓ $req_file 中的依赖安装成功 (排除torch)${NC}" | tee -a "$LOG_FILE"
+                echo -e "${GREEN}✓ $req_file 中的依赖安装成功 (排除torch)${NC}" 
                 rm -f "$temp_req"  # 删除临时文件
             else
-                echo -e "${RED}× $req_file 中的依赖安装失败${NC}" | tee -a "$LOG_FILE"
+                echo -e "${RED}× $req_file 中的依赖安装失败${NC}" 
                 rm -f "$temp_req"  # 删除临时文件
                 return 1
             fi
         done
         
-        echo -e "${GREEN}✓ 所有 Python 依赖安装成功${NC}" | tee -a "$LOG_FILE"
+        echo -e "${GREEN}✓ 所有 Python 依赖安装成功${NC}" 
         return 0
     else
-        echo -e "${YELLOW}未找到 requirements.txt 文件，尝试安装基本依赖...${NC}" | tee -a "$LOG_FILE"
+        echo -e "${YELLOW}未找到 requirements.txt 文件，尝试安装基本依赖...${NC}" 
         
         # 安装基本依赖（不包含torch）
         if pip install numpy requests tqdm transformers huggingface_hub; then
-            echo -e "${GREEN}✓ 基本 Python 依赖安装成功${NC}" | tee -a "$LOG_FILE"
+            echo -e "${GREEN}✓ 基本 Python 依赖安装成功${NC}" 
             return 0
         else
-            echo -e "${RED}× 基本 Python 依赖安装失败${NC}" | tee -a "$LOG_FILE"
+            echo -e "${RED}× 基本 Python 依赖安装失败${NC}" 
             return 1
         fi
     fi
 
-    log "INFO" "更新libstdc++6" | tee -a "$LOG_FILE"
+    log "INFO" "更新libstdc++6" 
     
     if ! command_exists add-apt-repository; then
-        log "WARN" "add-apt-repository命令不存在，尝试安装..." | tee -a "$LOG_FILE"
+        log "WARN" "add-apt-repository命令不存在，尝试安装..." 
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
     fi
@@ -2684,22 +2686,22 @@ install_python_deps() {
         if add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
            DEBIAN_FRONTEND=noninteractive apt-get update -y && \
            DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade libstdc++6; then
-            log "SUCCESS" "libstdc++6更新成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "libstdc++6更新成功" 
         else
-            log "ERROR" "libstdc++6更新失败" | tee -a "$LOG_FILE"
-            log "WARN" "将继续安装过程，但可能影响某些运行时功能" | tee -a "$LOG_FILE"
+            log "ERROR" "libstdc++6更新失败" 
+            log "WARN" "将继续安装过程，但可能影响某些运行时功能" 
         fi
     else
-        log "ERROR" "无法安装add-apt-repository工具，跳过libstdc++6更新" | tee -a "$LOG_FILE"
-        log "WARN" "将继续安装过程，但可能影响某些运行时功能" | tee -a "$LOG_FILE"
+        log "ERROR" "无法安装add-apt-repository工具，跳过libstdc++6更新" 
+        log "WARN" "将继续安装过程，但可能影响某些运行时功能" 
     fi
     
-    log "INFO" "安装libstdcxx-ng" | tee -a "$LOG_FILE"
+    log "INFO" "安装libstdcxx-ng" 
     if retry_command_with_logging "conda install -c conda-forge libstdcxx-ng -y" 300; then
-        log "SUCCESS" "libstdcxx-ng安装成功" | tee -a "$LOG_FILE"
+        log "SUCCESS" "libstdcxx-ng安装成功" 
     else
-        log "ERROR" "libstdcxx-ng安装失败" | tee -a "$LOG_FILE"
-        log "WARN" "将继续安装过程，但可能影响某些运行时功能" | tee -a "$LOG_FILE"
+        log "ERROR" "libstdcxx-ng安装失败" 
+        log "WARN" "将继续安装过程，但可能影响某些运行时功能" 
     fi
     
     return 0
@@ -2707,44 +2709,44 @@ install_python_deps() {
 
 # 安装KTransformers
 install_ktransformers() {
-    echo -e "${BLUE}[步骤 12] 安装KTransformers${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 12] 安装KTransformers${NC}" 
     
     if [ ! -d "$INSTALL_DIR" ]; then
-        log "ERROR" "目录 $INSTALL_DIR 不存在" | tee -a "$LOG_FILE"
+        log "ERROR" "目录 $INSTALL_DIR 不存在" 
         return 1
     fi
     
     cd "$INSTALL_DIR" || {
-        log "ERROR" "无法进入 $INSTALL_DIR 目录" | tee -a "$LOG_FILE"
+        log "ERROR" "无法进入 $INSTALL_DIR 目录" 
         return 1
     }
     
     # 首先尝试使用make
     if ! command_exists make; then
-        log "ERROR" "make命令不存在，尝试安装..." | tee -a "$LOG_FILE"
+        log "ERROR" "make命令不存在，尝试安装..." 
         DEBIAN_FRONTEND=noninteractive apt-get update -y && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential
         
         if ! command_exists make; then
-            log "ERROR" "无法安装make工具，跳过make dev_install步骤" | tee -a "$LOG_FILE"
-            log "WARN" "尝试使用pip直接安装..." | tee -a "$LOG_FILE"
+            log "ERROR" "无法安装make工具，跳过make dev_install步骤" 
+            log "WARN" "尝试使用pip直接安装..." 
             
             if pip install -e .; then
-                log "SUCCESS" "使用pip安装成功" | tee -a "$LOG_FILE"
+                log "SUCCESS" "使用pip安装成功" 
                 return 1
             else
-                log "ERROR" "使用pip安装也失败" | tee -a "$LOG_FILE"
-                log "WARN" "您可能需要手动执行安装:" | tee -a "$LOG_FILE"
-                log "WARN" "1. 安装build-essential" | tee -a "$LOG_FILE"
-                log "WARN" "2. 进入 $INSTALL_DIR 目录" | tee -a "$LOG_FILE"
-                log "WARN" "3. 执行 make dev_install 或 pip install -e ." | tee -a "$LOG_FILE"
+                log "ERROR" "使用pip安装也失败" 
+                log "WARN" "您可能需要手动执行安装:" 
+                log "WARN" "1. 安装build-essential" 
+                log "WARN" "2. 进入 $INSTALL_DIR 目录" 
+                log "WARN" "3. 执行 make dev_install 或 pip install -e ." 
                 return 1
             fi
         fi
     fi
     
-    log "INFO" "开始执行make dev_install（这可能需要一些时间）..." | tee -a "$LOG_FILE"
-    log "INFO" "编译过程中可能会显示一些警告，这是正常现象" | tee -a "$LOG_FILE"
+    log "INFO" "开始执行make dev_install（这可能需要一些时间）..." 
+    log "INFO" "编译过程中可能会显示一些警告，这是正常现象" 
     
     local make_output=""
     local make_log_file="$INSTALL_DIR/make_build.log"
@@ -2752,32 +2754,32 @@ install_ktransformers() {
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 开始执行make dev_install..." > "$make_log_file"
     
     if make_output=$(make dev_install 2>&1); then
-        log "SUCCESS" "make dev_install执行成功" | tee -a "$LOG_FILE"
+        log "SUCCESS" "make dev_install执行成功" 
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_log_file"
         return 0
     else
         local exit_code=$?
-        log "ERROR" "make dev_install执行失败 (错误码: $exit_code)" | tee -a "$LOG_FILE"
+        log "ERROR" "make dev_install执行失败 (错误码: $exit_code)" 
         # 在失败时重命名为错误日志
         local make_error_file="$INSTALL_DIR/make_build_error.log"
         mv "$make_log_file" "$make_error_file"
-        log "WARN" "编译错误已保存到 $make_error_file" | tee -a "$LOG_FILE"
+        log "WARN" "编译错误已保存到 $make_error_file" 
         
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行失败 (错误码: $exit_code)" >> "$make_error_file"
         echo "==================== 错误输出 ====================" >> "$make_error_file"
         echo "$make_output" >> "$make_error_file"
         echo "==================================================" >> "$make_error_file"
         
-        log "WARN" "错误摘要:" | tee -a "$LOG_FILE"
-        echo "$make_output" | tail -n 15 | tee -a "$LOG_FILE"
+        log "WARN" "错误摘要:" 
+        echo "$make_output" | tail -n 15 
         
-        log "WARN" "尝试使用pip直接安装..." | tee -a "$LOG_FILE"
+        log "WARN" "尝试使用pip直接安装..." 
         if pip install -e .; then
-            log "SUCCESS" "使用pip安装成功" | tee -a "$LOG_FILE"
+            log "SUCCESS" "使用pip安装成功" 
             return 0
         else
-            log "ERROR" "使用pip安装也失败" | tee -a "$LOG_FILE"
-            log "WARN" "将继续安装过程，但功能可能不完整" | tee -a "$LOG_FILE"
+            log "ERROR" "使用pip安装也失败" 
+            log "WARN" "将继续安装过程，但功能可能不完整" 
             return 1
         fi
     fi
@@ -2786,7 +2788,7 @@ install_ktransformers() {
 # 处理工作区所有权的函数
 handle_workspace_ownership() {
 
-    echo -e "${BLUE}[步骤 13] 处理工作区所有权${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}[步骤 13] 处理工作区所有权${NC}" 
 
     local install_dir_abs=$(readlink -f "$INSTALL_DIR")
     local current_dir_abs=$(readlink -f "$SCRIPT_DIR")
@@ -2806,7 +2808,7 @@ handle_workspace_ownership() {
     # 获取用户的主组
     target_group=$(id -gn "$target_user" 2>/dev/null || echo "$target_user")
 
-    echo -e "${YELLOW}将使用目标用户和组: $target_user:$target_group${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}将使用目标用户和组: $target_user:$target_group${NC}" 
 
     # 检查当前用户权限
     local use_sudo=0
@@ -2826,45 +2828,45 @@ handle_workspace_ownership() {
     for ws_path in "${unique_workspace_paths[@]}"; do
         ws_path=$(readlink -f "$ws_path" 2>/dev/null || echo "$ws_path")
         if [ -d "$ws_path" ]; then
-            echo -e "${YELLOW}处理 workspace 目录: $ws_path${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}处理 workspace 目录: $ws_path${NC}" 
             local cmd_prefix=""
             local success=1
 
             if [ $use_sudo -eq 1 ]; then
                 cmd_prefix="sudo "
-                echo -e "${YELLOW}使用 sudo 更改所有权和权限: $ws_path${NC}" | tee -a "$LOG_FILE"
+                echo -e "${YELLOW}使用 sudo 更改所有权和权限: $ws_path${NC}" 
             else
-                echo -e "${YELLOW}更改所有权和权限: $ws_path${NC}" | tee -a "$LOG_FILE"
+                echo -e "${YELLOW}更改所有权和权限: $ws_path${NC}" 
             fi
 
             # 1. 更改 workspace 目录本身的所有权
             if ! ${cmd_prefix}chown "$target_user:$target_group" "$ws_path"; then
-                echo -e "${RED}× 设置 workspace 目录 '$ws_path' 所有权失败 (chown)${NC}" | tee -a "$LOG_FILE"
+                echo -e "${RED}× 设置 workspace 目录 '$ws_path' 所有权失败 (chown)${NC}" 
                 success=0
             fi
 
             # 2. 更改 workspace 目录本身的权限
             if [ $success -eq 1 ] && ! ${cmd_prefix}chmod 755 "$ws_path"; then
-                echo -e "${RED}× 设置 workspace 目录 '$ws_path' 权限失败 (chmod 755)${NC}" | tee -a "$LOG_FILE"
+                echo -e "${RED}× 设置 workspace 目录 '$ws_path' 权限失败 (chmod 755)${NC}" 
                 success=0
             fi
 
             # 3. 递归更改内部文件/目录的所有权
             if [ $success -eq 1 ] && ! ${cmd_prefix}chown -R "$target_user:$target_group" "$ws_path"; then
-                 echo -e "${RED}× 递归设置 workspace 内容所有权失败 (chown -R)${NC}" | tee -a "$LOG_FILE"
+                 echo -e "${RED}× 递归设置 workspace 内容所有权失败 (chown -R)${NC}" 
                  success=0
             fi
 
             # 4. 递归更改内部文件/目录的权限
              if [ $success -eq 1 ] && ! ${cmd_prefix}chmod -R 755 "$ws_path"; then
-                 echo -e "${RED}× 递归设置 workspace 内容权限失败 (chmod -R 755)${NC}" | tee -a "$LOG_FILE"
+                 echo -e "${RED}× 递归设置 workspace 内容权限失败 (chmod -R 755)${NC}" 
                  success=0
              fi
 
             if [ $success -eq 1 ]; then
-                 echo -e "${GREEN}✓ 成功设置 workspace 目录及内容的所有权和权限${NC}" | tee -a "$LOG_FILE"
+                 echo -e "${GREEN}✓ 成功设置 workspace 目录及内容的所有权和权限${NC}" 
             else
-                 echo -e "${RED}× 处理 workspace 目录 '$ws_path' 时遇到错误${NC}" | tee -a "$LOG_FILE"
+                 echo -e "${RED}× 处理 workspace 目录 '$ws_path' 时遇到错误${NC}" 
             fi
         fi
     done
@@ -2877,7 +2879,7 @@ handle_workspace_ownership() {
         if [ -d "$dir" ] && [ "$dir" != "/" ]; then
             local activate_script="$dir/activate_env.sh"
             if [ -f "$activate_script" ]; then
-                echo -e "${YELLOW}设置激活脚本所有权: $activate_script${NC}" | tee -a "$LOG_FILE"
+                echo -e "${YELLOW}设置激活脚本所有权: $activate_script${NC}" 
                 local cmd_prefix=""
                 if [ $use_sudo -eq 1 ]; then
                     cmd_prefix="sudo "
@@ -2885,9 +2887,9 @@ handle_workspace_ownership() {
 
                 if ${cmd_prefix}chown "$target_user:$target_group" "$activate_script" && \
                    ${cmd_prefix}chmod 755 "$activate_script"; then
-                     echo -e "${GREEN}✓ 成功设置激活脚本所有权和权限${NC}" | tee -a "$LOG_FILE"
+                     echo -e "${GREEN}✓ 成功设置激活脚本所有权和权限${NC}" 
                 else
-                     echo -e "${RED}× 设置激活脚本 '$activate_script' 所有权或权限失败${NC}" | tee -a "$LOG_FILE"
+                     echo -e "${RED}× 设置激活脚本 '$activate_script' 所有权或权限失败${NC}" 
                 fi
             fi
         fi
@@ -2903,19 +2905,19 @@ handle_workspace_ownership() {
         log_file_path=$(readlink -f "$log_file_path" 2>/dev/null || echo "$LOG_FILE")
 
         if [ -f "$log_file_path" ]; then
-            echo -e "${YELLOW}设置日志文件所有权: $log_file_path${NC}" | tee -a "$LOG_FILE"
+            echo -e "${YELLOW}设置日志文件所有权: $log_file_path${NC}" 
             local cmd_prefix=""
             if [ $use_sudo -eq 1 ]; then
                 cmd_prefix="sudo "
             fi
 
             if ! ${cmd_prefix}chown "$target_user:$target_group" "$log_file_path"; then
-                 echo -e "${RED}× 设置日志文件 '$log_file_path' 所有权失败${NC}" | tee -a "$LOG_FILE"
+                 echo -e "${RED}× 设置日志文件 '$log_file_path' 所有权失败${NC}" 
             fi
         fi
     fi
 
-    echo -e "${GREEN}✓ 目录所有权设置检查完成${NC}" | tee -a "$LOG_FILE"
+    echo -e "${GREEN}✓ 目录所有权设置检查完成${NC}" 
     sleep 1
 }
 
@@ -2927,71 +2929,71 @@ completion_message() {
     
 
     border="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo -e "\n${BLUE}$border${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}                ► KTransformers 安装报告 ◄${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}$border${NC}\n" | tee -a "$LOG_FILE"
+    echo -e "\n${BLUE}$border${NC}" 
+    echo -e "${BLUE}                ► KTransformers 安装报告 ◄${NC}" 
+    echo -e "${BLUE}$border${NC}\n" 
     
 
-    echo -e "${GREEN}[系统环境检查]${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}┌────────────────────────────────────────────────────┐${NC}" | tee -a "$LOG_FILE"
+    echo -e "${GREEN}[系统环境检查]${NC}" 
+    echo -e "${BLUE}┌────────────────────────────────────────────────────┐${NC}" 
     
-    echo -e "${BLUE}│${NC} > 安装目录:     ${GREEN}${INSTALL_DIR}${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}│${NC} > 安装目录:     ${GREEN}${INSTALL_DIR}${NC}" 
     
     if command_exists python; then
-        echo -e "${BLUE}│${NC} > Ktransformers版本:   ${GREEN}${KTRANS_VERSION}${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > Ktransformers版本:   ${GREEN}${KTRANS_VERSION}${NC}" 
     else
-        echo -e "${BLUE}│${NC} > Ktransformers版本:   ${YELLOW}未找到${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > Ktransformers版本:   ${YELLOW}未找到${NC}" 
     fi
 
     if command_exists python; then
         python_version=$(python --version 2>&1)
-        echo -e "${BLUE}│${NC} > Python版本:   ${GREEN}$python_version${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > Python版本:   ${GREEN}$python_version${NC}" 
     else
-        echo -e "${BLUE}│${NC} > Python版本:   ${YELLOW}未找到${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > Python版本:   ${YELLOW}未找到${NC}" 
     fi
     
     if command_exists conda; then
         conda_version=$(conda --version 2>&1)
-        echo -e "${BLUE}│${NC} > Conda版本:    ${GREEN}${conda_version}${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > Conda版本:    ${GREEN}${conda_version}${NC}" 
     else
-        echo -e "${BLUE}│${NC} > Conda版本:    ${YELLOW}未找到${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > Conda版本:    ${YELLOW}未找到${NC}" 
     fi
     
     if command_exists nvcc; then
         cuda_version=$(nvcc --version | grep "release" | awk '{print $6}' | sed 's/,//')
-        echo -e "${BLUE}│${NC} > CUDA版本:     ${GREEN}${cuda_version}${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > CUDA版本:     ${GREEN}${cuda_version}${NC}" 
     else
-        echo -e "${BLUE}│${NC} > CUDA版本:     ${YELLOW}未找到${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > CUDA版本:     ${YELLOW}未找到${NC}" 
     fi
     
     if [ $USE_NUMA -eq 1 ]; then
-        echo -e "${BLUE}│${NC} > NUMA支持:     ${GREEN}已启用${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > NUMA支持:     ${GREEN}已启用${NC}" 
     else
-        echo -e "${BLUE}│${NC} > NUMA支持:     ${YELLOW}未启用${NC}" | tee -a "$LOG_FILE"
+        echo -e "${BLUE}│${NC} > NUMA支持:     ${YELLOW}未启用${NC}" 
     fi
     
-    echo -e "${BLUE}│${NC} > 编译线程数:   ${GREEN}${MAX_JOBS}${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}└────────────────────────────────────────────────────┘${NC}" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}│${NC} > 编译线程数:   ${GREEN}${MAX_JOBS}${NC}" 
+    echo -e "${BLUE}└────────────────────────────────────────────────────┘${NC}" 
     
 
-    echo -e "\n${GREEN}[SUCCESS] KTransformers 安装成功!${NC}" | tee -a "$LOG_FILE"
+    echo -e "\n${GREEN}[SUCCESS] KTransformers 安装成功!${NC}" 
     
-    echo -e "\n${YELLOW}[使用指南]${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}┌────────────────────────────────────────────────────┐${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC} 1. 激活环境:                                     ${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}    ${GREEN}source ${SCRIPT_DIR}/activate_env.sh ${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}                                                ${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC} 2. 运行示例:                                     ${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}    ${GREEN}请访问Ktransformers官方文档:${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}    ${GREEN}https://kvcache-ai.github.io/ktransformers/en/DeepseekR1_V3_tutorial.html${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}                                                ${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}    ${GREEN}或者使用本地脚本:${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}│${NC}    ${GREEN}${SCRIPT_DIR}/start.sh${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}└────────────────────────────────────────────────────┘${NC}" | tee -a "$LOG_FILE"
+    echo -e "\n${YELLOW}[使用指南]${NC}" 
+    echo -e "${BLUE}┌────────────────────────────────────────────────────┐${NC}" 
+    echo -e "${BLUE}│${NC} 1. 激活环境:                                     ${NC}" 
+    echo -e "${BLUE}│${NC}    ${GREEN}source ${SCRIPT_DIR}/activate_env.sh ${NC}" 
+    echo -e "${BLUE}│${NC}                                                ${NC}" 
+    echo -e "${BLUE}│${NC} 2. 运行示例:                                     ${NC}" 
+    echo -e "${BLUE}│${NC}    ${GREEN}请访问Ktransformers官方文档:${NC}" 
+    echo -e "${BLUE}│${NC}    ${GREEN}https://kvcache-ai.github.io/ktransformers/en/DeepseekR1_V3_tutorial.html${NC}" 
+    echo -e "${BLUE}│${NC}                                                ${NC}" 
+    echo -e "${BLUE}│${NC}    ${GREEN}或者使用本地脚本:${NC}" 
+    echo -e "${BLUE}│${NC}    ${GREEN}${SCRIPT_DIR}/start.sh${NC}" 
+    echo -e "${BLUE}└────────────────────────────────────────────────────┘${NC}" 
     
-    echo -e "\n${BLUE}$border${NC}" | tee -a "$LOG_FILE"
-    echo -e "${GREEN}               感谢使用 KTransformers!${NC}" | tee -a "$LOG_FILE"
-    echo -e "${BLUE}$border${NC}\n" | tee -a "$LOG_FILE"
+    echo -e "\n${BLUE}$border${NC}" 
+    echo -e "${GREEN}               感谢使用 KTransformers!${NC}" 
+    echo -e "${BLUE}$border${NC}\n" 
 }
 
 
@@ -3013,8 +3015,8 @@ main() {
     fi
     
     # 显示安装脚本版本信息
-    echo -e "${PURPLE}KTransformers 安装脚本${NC}" | tee -a "$LOG_FILE"
-    echo -e "${PURPLE}当前时间: $(date)${NC}\n" | tee -a "$LOG_FILE"
+    echo -e "${PURPLE}KTransformers 安装脚本${NC}" 
+    echo -e "${PURPLE}当前时间: $(date)${NC}\n" 
     
     # 检查并安装所有依赖和工具
     setup_dependencies || exit 1
@@ -3036,11 +3038,11 @@ main() {
     
     # 克隆仓库
     if ! clone_repo; then
-        echo -e "${RED}× 仓库克隆失败，请检查网络连接和目录权限${NC}" | tee -a "$LOG_FILE"
-        echo -e "${YELLOW}您可以尝试手动克隆仓库:${NC}" | tee -a "$LOG_FILE"
-        echo -e "  ${BLUE}git clone https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}" | tee -a "$LOG_FILE"
+        echo -e "${RED}× 仓库克隆失败，请检查网络连接和目录权限${NC}" 
+        echo -e "${YELLOW}您可以尝试手动克隆仓库:${NC}" 
+        echo -e "  ${BLUE}git clone https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}" 
         if [ $USE_GHPROXY -eq 1 ]; then
-            echo -e "或者使用ghfast.top代理:" | tee -a "$LOG_FILE"
+            echo -e "或者使用ghfast.top代理:" 
             echo -e "  ${BLUE}git clone ${GHPROXY_URL}/https://github.com/kvcache-ai/ktransformers.git $INSTALL_DIR${NC}"
         fi
         exit 1
