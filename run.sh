@@ -3155,7 +3155,7 @@ install_ktransformers() {
     if make_output=$(make dev_install 2>&1); then
         log "SUCCESS" "make dev_install执行成功"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_log_file"
-        return 0
+        return 1
     else
         local exit_code=$?
         log "ERROR" "make dev_install执行失败 (错误码: $exit_code)"
@@ -3175,11 +3175,11 @@ install_ktransformers() {
         log "WARN" "尝试使用pip直接安装..."
         if pip install -e .; then
             log "SUCCESS" "使用pip安装成功"
-            return 0
+            return 1
         else
             log "ERROR" "使用pip安装也失败"
             log "WARN" "将继续安装过程，但功能可能不完整"
-            return 1
+            return 0
         fi
     fi
 }
@@ -3397,9 +3397,6 @@ main() {
 
     # 设置使用numa
     set_use_numa || install_status=1
-    
-    # 编译和构建所需库
-    build_libraries || install_status=1
     
     # 安装 Flash Attention
     install_flash_attn || install_status=1
