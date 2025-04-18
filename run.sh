@@ -772,15 +772,12 @@ setup_log_file() {
     echo "" >> "$LOG_FILE"
     
 
-    # 设置日志文件权限
     chmod 644 "$LOG_FILE"
     
-    # 如果是root用户运行，并且有设置INSTALL_USER，则设置日志文件所有权
     if [ "$(id -u)" -eq 0 ] && [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
         echo -e "${YELLOW}设置日志文件所有权为用户: $INSTALL_USER${NC}"
         local target_group=$(id -gn $INSTALL_USER 2>/dev/null || echo $INSTALL_USER)
         chown $INSTALL_USER:$target_group "$LOG_FILE"
-    # 否则如果是以sudo运行，设置回sudo用户所有权
     elif [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
         echo -e "${YELLOW}设置日志文件所有权为sudo用户: $SUDO_USER${NC}"
         local target_group=$(id -gn $SUDO_USER 2>/dev/null || echo $SUDO_USER)
@@ -3002,41 +2999,42 @@ completion_message() {
 main() {
     # 用户配置安装选项
     configure_installation
-    
+
+    # 设置日志文件
+    setup_log_file
+
     # 显示开始安装标题
     show_ktransformers_logo
     echo -e "${BLUE}===== KTransformers 安装开始 =====${NC}\n" >> "$LOG_FILE"
-    
-    # 设置日志文件
-    setup_log_file
-    
+
+
     # 在调试模式下收集系统信息
     if [ $DEBUG_MODE -eq 1 ]; then
         collect_system_info
     fi
-    
+
     # 显示安装脚本版本信息
     echo -e "${PURPLE}KTransformers 安装脚本${NC}" >> "$LOG_FILE"
     echo -e "${PURPLE}当前时间: $(date)${NC}\n" >> "$LOG_FILE"
-    
+
     # 检查并安装所有依赖和工具
     setup_dependencies || exit 1
-    
+
     # 测试GitHub连通性
     test_github_connectivity
-    
+
     # 检查并设置pip源
     check_and_set_pip_mirror
-    
+
     # 检测CUDA版本
     detect_pytorch_cuda_version
-    
+
     # 用于跟踪安装状态的变量
     local install_status=0
-    
+
     # 检查是否以root用户运行
     check_root || exit 1
-    
+
     # 克隆仓库
     if ! clone_repo; then
         echo -e "${RED}× 仓库克隆失败，请检查网络连接和目录权限${NC}" >> "$LOG_FILE"
@@ -3048,40 +3046,40 @@ main() {
         fi
         exit 1
     fi
-    
+
     # 安装conda和创建环境 - 关键步骤，失败直接退出
     install_conda || { echo -e "${RED}× Conda安装失败，无法继续安装${NC}"; exit 1; }
-    
+
     # 创建conda环境
     create_conda_env || { echo -e "${RED}× Conda环境创建失败，无法继续安装${NC}"; exit 1; }
-    
+
     # 激活conda环境
     activate_conda_env || { echo -e "${RED}× Conda环境激活失败，无法继续安装${NC}"; exit 1; }
-    
+
     # 安装PyTorch
     install_pytorch || { echo -e "${RED}× PyTorch安装失败，可能导致功能受限${NC}"; install_status=1; }
-    
+
     # 初始化git子模块
     init_git_submodules || install_status=1
-    
+
     # 安装libnuma  
     install_libnuma || install_status=1
 
     # 设置使用numa
     set_use_numa || install_status=1
-    
+
     # 安装 Flash Attention
     install_flash_attn || install_status=1
-    
+
     # 安装 FlashInfer
     download_flashinfer || install_status=1
-    
+
     # 安装Python依赖
     install_python_deps || install_status=1
-    
+
     # 安装KTransformers
     install_ktransformers || install_status=1
-    
+
     # 安装完成
     if [ $install_status -eq 0 ]; then
         echo -e "${GREEN}✓ 安装完成！${NC}"
