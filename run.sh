@@ -1535,23 +1535,23 @@ EOF
 # !! 由KTransformers安装脚本更新 !!\
 # 优先使用用户主目录下的符号链接\
 if [ -f "$HOME/bin/conda" ]; then\
-    export PATH="$HOME/bin:\$PATH"\
+    export PATH="$HOME/bin:\\$PATH"\
 elif [ -f "/usr/local/bin/conda" ]; then\
-    export PATH="/usr/local/bin:\$PATH"\
-elif [ -d "'"${CONDA_BASE_DIR}"'/bin" ]; then\
-    export PATH="'"${CONDA_BASE_DIR}"'/bin:\$PATH"\
+    export PATH="/usr/local/bin:\\$PATH"\
+elif [ -d "${CONDA_BASE_DIR}/bin" ]; then\
+    export PATH="${CONDA_BASE_DIR}/bin:\\$PATH"\
 fi\
 \
 # conda shell hook (由 conda init 管理)\
 # !! Contents within this block are managed by '"'conda init'"' !!\
-__conda_setup="\$(\'"'"${CONDA_BASE_DIR}"'/bin/conda'"'"' '"'shell.bash'"' '"'hook'"' 2> /dev/null)"\
-if [ \$? -eq 0 ]; then\
-    eval "\$__conda_setup"\
+__conda_setup="\\$\\(\'${CONDA_BASE_DIR}/bin/conda\' \'shell.bash\' \'hook\' 2> /dev/null\\)"\
+if [ \\$? -eq 0 ]; then\
+    eval "\\$__conda_setup"\
 else\
-    if [ -f "'"${CONDA_BASE_DIR}"'/etc/profile.d/conda.sh" ]; then\
-        . "'"${CONDA_BASE_DIR}"'/etc/profile.d/conda.sh"\
+    if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then\
+        . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"\
     else\
-        export PATH="'"${CONDA_BASE_DIR}"'/bin:\$PATH"\
+        export PATH="${CONDA_BASE_DIR}/bin:\\$PATH"\
     fi\
 fi\
 unset __conda_setup\
