@@ -3328,7 +3328,6 @@ handle_workspace_ownership() {
 
                 if ${cmd_prefix}chown "$target_user:$target_group" "$activate_script" && \
                    ${cmd_prefix}chmod 755 "$activate_script"; then
-
                 else
                      echo -e "${RED}× 设置激活脚本 '$activate_script' 所有权或权限失败${NC}"
                 fi
