@@ -138,6 +138,8 @@ CONDA_BASE_DIR=""               # Conda基础目录，将在configure_installati
 ENV_NAME=""                     # Conda环境名称，将基于选择的版本号自动生成
 MAX_JOBS=$(nproc)               # 编译使用的最大线程数
 USE_NUMA=0                      # 是否启用NUMA环境变量（默认不启用）
+SCRIPT_DIR="$(pwd)"
+
 
 # 网络与代理配置
 USE_GHPROXY=0                   # 是否使用国内代理加速
@@ -1260,47 +1262,33 @@ install_conda() {
         log "INFO" "当前用户: $real_user, 主目录: $real_home"
     fi
 
-    # 优先使用 command -v 查找 conda
-    log "INFO" "尝试使用 'command -v conda' 查找..."
-    if [ $using_sudo -eq 1 ]; then
-        # 保留原始用户的 PATH 来查找 conda
-        local original_path=$(sudo -u "$real_user" bash -c 'echo $PATH')
-        conda_executable=$(sudo -u "$real_user" bash -c "PATH=\"$original_path:$PATH\" command -v conda 2>/dev/null")
-    else
-        conda_executable=$(command -v conda 2>/dev/null)
-    fi
+    local common_conda_paths=(
+        "$real_home/miniconda3"
+        "$real_home/anaconda3"
+        "$real_home/miniforge3"
+        "$real_home/.conda"
+    )
+    
+    for conda_path in "${common_conda_paths[@]}"; do
+        if [ -d "$conda_path/bin" ] && [ -x "$conda_path/bin/conda" ]; then
+            log "INFO" "在用户目录找到conda安装: $conda_path"
+            CONDA_BASE_DIR="$conda_path"
+            export PATH="$conda_path/bin:$PATH"
+            
+            # 验证conda是否可用
+            if "$conda_path/bin/conda" --version &> /dev/null; then
+                local conda_version=$("$conda_path/bin/conda" --version)
+                log "SUCCESS" "✓ 用户目录中的conda可用，版本: $conda_version"
+                conda config --set auto_activate_base false
+                return 0
+            else
 
-    if [ -n "$conda_executable" ] && [ -x "$conda_executable" ]; then
-        conda_found_msg="✓ 使用 'command -v' 找到conda: $conda_executable"
-        CONDA_BASE_DIR=$(dirname $(dirname "$conda_executable"))
-        log "SUCCESS" "$conda_found_msg"
-        log "INFO" "找到的conda基础目录: $CONDA_BASE_DIR"
-
-        # 确保找到的conda在当前脚本的PATH中
-        local conda_bin_dir=$(dirname "$conda_executable")
-        if [[ ":$PATH:" != *":$conda_bin_dir:"* ]]; then
-            export PATH="$conda_bin_dir:$PATH"
-            log "INFO" "已将找到的conda路径添加到当前会话PATH: $conda_bin_dir"
+                log "WARN" "未找到可用的conda，将在目标用户主目录安装Miniconda..."
+                CONDA_BASE_DIR="$real_home/miniconda3"
+                log "INFO" "目标安装路径: $CONDA_BASE_DIR"
+            fi
         fi
-
-        # 验证conda是否可用
-        if "$conda_executable" --version &> /dev/null; then
-            local conda_version=$("$conda_executable" --version)
-            log "SUCCESS" "✓ conda命令可执行，版本: $conda_version"
-            # 确保环境正确配置
-            conda config --set auto_activate_base false
-            return 0
-        else
-            log "WARN" "找到conda但无法执行 ($conda_executable --version 失败)，将尝试重新安装"
-        fi
-    else
-        log "INFO" "'command -v conda' 未找到 conda"
-    fi
-
-    # 如果未找到，则安装 Miniconda 到用户主目录
-    log "WARN" "未找到可用的conda，将在目标用户主目录安装Miniconda..."
-    CONDA_BASE_DIR="$real_home/miniconda3"
-    log "INFO" "目标安装路径: $CONDA_BASE_DIR"
+    done
 
     # 检查目标目录是否已存在且包含conda
     if [ -d "$CONDA_BASE_DIR/bin" ] && [ -x "$CONDA_BASE_DIR/bin/conda" ]; then
@@ -2288,7 +2276,7 @@ download_flashinfer() {
     
     if wget -q -O "$wheel_list_file" "$flashinfer_url"; then
  
-        local wheel_file_name=$(grep -o 'flashinfer_python-[0-9.]*\+cu[0-9]*torch[0-9.]*-cp[0-9]*-abi3-linux_x86_64.whl' "$wheel_list_file" | sort -V | tail -n 1)
+        local wheel_file_name=$(grep -o 'flashinfer_python-[0-9.]*post*[0-9]*+cu[0-9]*torch[0-9.]*-cp[0-9]*-abi3-linux_x86_64.whl' "$wheel_list_file" | sort -V | tail -n 1)
         
         if [ -n "$wheel_file_name" ]; then
             local wheel_url="${flashinfer_url}/${wheel_file_name}"
@@ -2631,7 +2619,9 @@ activate_conda_env() {
         return 1
     fi
 
-    local activate_script_path="$(pwd)/activate_env.sh" # 脚本放在当前执行目录下
+    # 使用初始脚本目录
+    local original_script_dir="${SCRIPT_DIR:-$(pwd)}"
+    local activate_script_path="$original_script_dir/activate_env.sh"
 
     # 创建激活脚本
     echo -e "${YELLOW}创建环境激活脚本: ${activate_script_path}${NC}"
@@ -2655,12 +2645,19 @@ conda activate $ENV_NAME
 
 # 激活后信息
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "                       环境激活信息                                 "
+echo "                       KTransformers 环境已激活                      "
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "➤ 当前环境: \$(conda info --envs | grep '*' || echo '未激活任何环境')"
-echo "➤ Python: \$(which python || echo '未找到Python')"
-echo "➤ 环境目录: ${ENV_INSTALL_DIR}"
+env_path=\$(conda info --envs | grep "^${ENV_NAME}[[:space:]]" | awk '{print \$NF}')
+echo "➤ 环境名称: ${ENV_NAME}"
+if [ -n "\$env_path" ]; then
+    echo "➤ 环境路径: \$env_path"
+else
+    echo "➤ 环境路径: (未能获取，请检查环境是否正确创建)"
+fi
+echo "➤ Python路径: \$(which python || echo '未找到')"
+echo "➤ Conda基础路径: ${CONDA_BASE_DIR}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "提示: 可以直接使用 'conda activate ${ENV_NAME}' 命令激活环境。"
 EOF
 
     chmod +x "$activate_script_path"
@@ -2682,8 +2679,7 @@ EOF
              else
                  log "WARN" "conda activate命令执行成功，但环境似乎未完全激活 (CONDA_DEFAULT_ENV='$CONDA_DEFAULT_ENV', CONDA_PREFIX='$CONDA_PREFIX')"
                  log "WARN" "这可能是shell环境问题，但依赖安装应该仍可进行。"
-                 # 即使未完全激活，只要conda命令能找到环境，后续pip安装通常也能工作
-                 return 0 # 仍然认为成功，以便继续
+                 return 0
              fi
         else
             log "ERROR" "在当前shell中执行 'conda activate $ENV_NAME' 失败"
@@ -3235,13 +3231,13 @@ completion_message() {
 handle_workspace_ownership() {
     local install_dir_abs=$(readlink -f "$INSTALL_DIR")
     local current_dir_abs=$(pwd)
-    
+
     echo -e "${YELLOW}设置目录所有权...${NC}"
-    
+
     # 确定目标用户和组
     local target_user=""
     local target_group=""
-    
+
     if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
         target_user="$INSTALL_USER"
     elif [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
@@ -3249,81 +3245,120 @@ handle_workspace_ownership() {
     else
         target_user=$(whoami)
     fi
-    
+
     # 获取用户的主组
     target_group=$(id -gn "$target_user" 2>/dev/null || echo "$target_user")
-    
+
     echo -e "${YELLOW}将使用目标用户和组: $target_user:$target_group${NC}"
-    
+
     # 检查当前用户权限
     local use_sudo=0
     if [ "$(id -u)" -ne 0 ]; then
         use_sudo=1
     fi
-    
+
     # 查找所有可能的workspace路径
     local workspace_paths=(
         "$install_dir_abs/workspace"
         "$current_dir_abs/workspace"
         "$(dirname "$install_dir_abs")/workspace"
     )
-    
+
     # 处理所有找到的workspace目录
-    for ws_path in "${workspace_paths[@]}"; do
+    local unique_workspace_paths=($(echo "${workspace_paths[@]}" | tr ' ' '\n' | sort -u | grep .))
+    for ws_path in "${unique_workspace_paths[@]}"; do
+        ws_path=$(readlink -f "$ws_path" 2>/dev/null || echo "$ws_path")
         if [ -d "$ws_path" ]; then
-            echo -e "${YELLOW}找到workspace目录: $ws_path${NC}"
-            
+            echo -e "${YELLOW}处理 workspace 目录: $ws_path${NC}"
+            local cmd_prefix=""
+            local success=1
+
             if [ $use_sudo -eq 1 ]; then
-                echo -e "${YELLOW}使用sudo更改所有权: $ws_path${NC}"
-                if sudo chown -R "$target_user:$target_group" "$ws_path"; then
-                    sudo chmod -R 755 "$ws_path"
-                    echo -e "${GREEN}✓ 成功设置workspace目录所有权${NC}"
-                else
-                    echo -e "${RED}× 设置workspace目录所有权失败${NC}"
-                fi
+                cmd_prefix="sudo "
+                echo -e "${YELLOW}使用 sudo 更改所有权和权限: $ws_path${NC}"
             else
-                echo -e "${YELLOW}更改所有权: $ws_path${NC}"
-                if chown -R "$target_user:$target_group" "$ws_path"; then
-                    chmod -R 755 "$ws_path"
-                    echo -e "${GREEN}✓ 成功设置workspace目录所有权${NC}"
-                else
-                    echo -e "${RED}× 设置workspace目录所有权失败${NC}"
-                fi
+                echo -e "${YELLOW}更改所有权和权限: $ws_path${NC}"
+            fi
+
+            # 1. 更改 workspace 目录本身的所有权
+            if ! ${cmd_prefix}chown "$target_user:$target_group" "$ws_path"; then
+                echo -e "${RED}× 设置 workspace 目录 '$ws_path' 所有权失败 (chown)${NC}"
+                success=0
+            fi
+
+            # 2. 更改 workspace 目录本身的权限
+            if [ $success -eq 1 ] && ! ${cmd_prefix}chmod 755 "$ws_path"; then
+                echo -e "${RED}× 设置 workspace 目录 '$ws_path' 权限失败 (chmod 755)${NC}"
+                success=0
+            fi
+
+            # 3. 递归更改内部文件/目录的所有权
+            if [ $success -eq 1 ] && ! ${cmd_prefix}chown -R "$target_user:$target_group" "$ws_path"; then
+                 echo -e "${RED}× 递归设置 workspace 内容所有权失败 (chown -R)${NC}"
+                 success=0
+            fi
+
+            # 4. 递归更改内部文件/目录的权限
+             if [ $success -eq 1 ] && ! ${cmd_prefix}chmod -R 755 "$ws_path"; then
+                 echo -e "${RED}× 递归设置 workspace 内容权限失败 (chmod -R 755)${NC}"
+                 success=0
+             fi
+
+            if [ $success -eq 1 ]; then
+                 echo -e "${GREEN}✓ 成功设置 workspace 目录及内容的所有权和权限${NC}"
+            else
+                 echo -e "${RED}× 处理 workspace 目录 '$ws_path' 时遇到错误${NC}"
             fi
         fi
     done
-    
-    # 处理原始目录
-    local orig_dirs=(
-        "$install_dir_abs"
-        "$current_dir_abs"
-    )
-    
-    for dir in "${orig_dirs[@]}"; do
+
+    # 处理原始目录中的 activate_env.sh
+    local orig_dirs=("$install_dir_abs" "$current_dir_abs")
+    local unique_orig_dirs=($(echo "${orig_dirs[@]}" | tr ' ' '\n' | sort -u | grep .))
+
+    for dir in "${unique_orig_dirs[@]}"; do
         if [ -d "$dir" ] && [ "$dir" != "/" ]; then
-            if [ -f "$dir/activate_env.sh" ]; then
-                echo -e "${YELLOW}设置激活脚本所有权: $dir/activate_env.sh${NC}"
+            local activate_script="$dir/activate_env.sh"
+            if [ -f "$activate_script" ]; then
+                echo -e "${YELLOW}设置激活脚本所有权: $activate_script${NC}"
+                local cmd_prefix=""
                 if [ $use_sudo -eq 1 ]; then
-                    sudo chown "$target_user:$target_group" "$dir/activate_env.sh"
-                    sudo chmod 755 "$dir/activate_env.sh"
-                else
-                    chown "$target_user:$target_group" "$dir/activate_env.sh"
-                    chmod 755 "$dir/activate_env.sh"
+                    cmd_prefix="sudo "
                 fi
-            fi
-            
-            if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
-                echo -e "${YELLOW}设置日志文件所有权: $LOG_FILE${NC}"
-                if [ $use_sudo -eq 1 ]; then
-                    sudo chown "$target_user:$target_group" "$LOG_FILE"
+
+                if ${cmd_prefix}chown "$target_user:$target_group" "$activate_script" && \
+                   ${cmd_prefix}chmod 755 "$activate_script"; then
+
                 else
-                    chown "$target_user:$target_group" "$LOG_FILE"
+                     echo -e "${RED}× 设置激活脚本 '$activate_script' 所有权或权限失败${NC}"
                 fi
             fi
         fi
     done
-    
-    echo -e "${GREEN}✓ 目录所有权设置完成${NC}"
+
+    # 处理日志文件 (移出循环)
+    if [ -n "$LOG_FILE" ]; then
+        local log_file_path="$LOG_FILE"
+
+        if [[ "$log_file_path" != /* && -f "$(pwd)/$log_file_path" ]]; then
+             log_file_path="$(pwd)/$log_file_path"
+        fi
+        log_file_path=$(readlink -f "$log_file_path" 2>/dev/null || echo "$LOG_FILE")
+
+        if [ -f "$log_file_path" ]; then
+            echo -e "${YELLOW}设置日志文件所有权: $log_file_path${NC}"
+            local cmd_prefix=""
+            if [ $use_sudo -eq 1 ]; then
+                cmd_prefix="sudo "
+            fi
+
+            if ! ${cmd_prefix}chown "$target_user:$target_group" "$log_file_path"; then
+                 echo -e "${RED}× 设置日志文件 '$log_file_path' 所有权失败${NC}"
+            fi
+        fi
+    fi
+
+    echo -e "${GREEN}✓ 目录所有权设置检查完成${NC}" 
 }
 
 # 主函数
