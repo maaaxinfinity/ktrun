@@ -3436,7 +3436,7 @@ main() {
     install_conda || { echo -e "${RED}× Conda安装失败，无法继续安装${NC}"; exit 1; }
     
     # 配置conda环境目录
-    configure_conda_env || { echo -e "${RED}× Conda环境配置失败${NC}"; exit 1; }
+    # configure_conda_env || { echo -e "${RED}× Conda环境配置失败${NC}"; exit 1; }
 
     # 创建conda环境
     create_conda_env || { echo -e "${RED}× Conda环境创建失败，无法继续安装${NC}"; exit 1; }
