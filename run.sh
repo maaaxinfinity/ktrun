@@ -3132,7 +3132,7 @@ install_ktransformers() {
             
             if pip install -e .; then
                 log "SUCCESS" "使用pip安装成功"
-                return 0
+                return 1
             else
                 log "ERROR" "使用pip安装也失败"
                 log "WARN" "您可能需要手动执行安装:"
@@ -3155,7 +3155,7 @@ install_ktransformers() {
     if make_output=$(make dev_install 2>&1); then
         log "SUCCESS" "make dev_install执行成功"
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] make dev_install执行成功" >> "$make_log_file"
-        return 1
+        return 0
     else
         local exit_code=$?
         log "ERROR" "make dev_install执行失败 (错误码: $exit_code)"
@@ -3175,11 +3175,11 @@ install_ktransformers() {
         log "WARN" "尝试使用pip直接安装..."
         if pip install -e .; then
             log "SUCCESS" "使用pip安装成功"
-            return 1
+            return 0
         else
             log "ERROR" "使用pip安装也失败"
             log "WARN" "将继续安装过程，但功能可能不完整"
-            return 0
+            return 1
         fi
     fi
 }
