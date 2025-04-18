@@ -1526,38 +1526,9 @@ EOF
         echo "$conda_init_block" >> "$bashrc"
         echo -e "${GREEN}✓ 已更新.bashrc${NC}"
     else
-        echo -e "${YELLOW}.bashrc已包含conda初始化，更新现有配置...${NC}"
-        # 备份原文件
-        cp "$bashrc" "$bashrc.bak.$(date +%Y%m%d%H%M%S)"
-        # 替换旧的conda初始化块
-        sed -i '/# >>> conda initialize >>>/,/# <<< conda initialize <<</c\
-# >>> conda initialize >>>\
-# !! 由KTransformers安装脚本更新 !!\
-# 优先使用用户主目录下的符号链接\
-if [ -f "$HOME/bin/conda" ]; then\
-    export PATH="$HOME/bin:\\$PATH"\
-elif [ -f "/usr/local/bin/conda" ]; then\
-    export PATH="/usr/local/bin:\\$PATH"\
-elif [ -d "${CONDA_BASE_DIR}/bin" ]; then\
-    export PATH="${CONDA_BASE_DIR}/bin:\\$PATH"\
-fi\
-\
-# conda shell hook (由 conda init 管理)\
-# !! Contents within this block are managed by '"'conda init'"' !!\
-__conda_setup="\\$\\(\'${CONDA_BASE_DIR}/bin/conda\' \'shell.bash\' \'hook\' 2> /dev/null\\)"\
-if [ \\$? -eq 0 ]; then\
-    eval "\\$__conda_setup"\
-else\
-    if [ -f "${CONDA_BASE_DIR}/etc/profile.d/conda.sh" ]; then\
-        . "${CONDA_BASE_DIR}/etc/profile.d/conda.sh"\
-    else\
-        export PATH="${CONDA_BASE_DIR}/bin:\\$PATH"\
-    fi\
-fi\
-unset __conda_setup\
-\
-# <<< conda initialize <<<' "$bashrc"
-        echo -e "${GREEN}✓ 已更新.bashrc中的conda初始化代码${NC}"
+        echo -e "${YELLOW}.bashrc已包含conda初始化块，跳过修改...${NC}"
+        echo -e "${GREEN}注意: 请手动确保conda路径正确配置在.bashrc中${NC}"
+        echo -e "${GREEN}建议的conda路径: ${CONDA_BASE_DIR}/bin${NC}"
     fi
     
     echo -e "${GREEN}✓ 已完成用户 $current_user 的conda配置${NC}"
