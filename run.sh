@@ -2566,8 +2566,16 @@ install_flash_attn() {
         log "ERROR" "无法创建临时目录"
         return 1
     }
+    
+    local flash_attn_url="https://github.com/Dao-AILab/flash-attention.git"
+    if [ $USE_GHPROXY -eq 1 ]; then
+        flash_attn_url="${GHPROXY_URL}/${flash_attn_url}"
+        echo -e "${YELLOW}使用代理克隆flash-attention: ${flash_attn_url}${NC}"
+    else
+        echo -e "${YELLOW}直接克隆flash-attention: ${flash_attn_url}${NC}"
+    fi
 
-    if git clone https://github.com/Dao-AILab/flash-attention.git; then
+    if git clone "$flash_attn_url"; then
         cd flash-attention || {
             log "ERROR" "无法进入flash-attention目录"
             return 1
@@ -2991,12 +2999,3 @@ main() {
 
 # 运行主函数
 main "$@"
-
-
-
-
-
-
-
-
-
